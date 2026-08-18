@@ -1,0 +1,128 @@
+from django.utils import timezone
+
+
+def iso_date(value):
+    return value.isoformat() if value else ""
+
+
+def user_data(user):
+    return {
+        "id": user.username,
+        "name": user.display_name,
+        "department": user.department.name if user.department else "",
+        "position": user.position,
+        "email": user.email,
+        "hireDate": iso_date(user.hire_date),
+        "isAdmin": user.is_staff,
+    }
+
+
+def form_data(form):
+    return {
+        "id": form.slug,
+        "category": form.category,
+        "name": form.name,
+        "description": form.description,
+        "defaultTitle": form.default_title,
+        "defaultContent": form.default_content,
+        "receivers": form.receivers,
+        "references": form.references,
+        "viewers": form.viewers,
+        "publicReceivers": form.public_receivers,
+        "cooperationDepartment": form.cooperation_department,
+        "agreement": form.agreement,
+        "documentLayout": form.document_layout,
+        "lineItemRows": form.line_item_rows,
+        "enabled": form.is_enabled,
+        "recentCount": form.recent_count,
+    }
+
+
+def step_data(step):
+    return {
+        "name": step.name,
+        "department": step.department,
+        "type": step.step_type,
+        "role": step.role,
+        "status": step.status,
+        "approvedAt": timezone.localtime(step.approved_at).strftime("%m.%d %H:%M")
+        if step.approved_at
+        else None,
+        "delegatedBy": step.delegated_by or None,
+        "requiresOriginalApproval": step.requires_original_approval,
+    }
+
+
+def history_data(history):
+    return {
+        "id": history.public_id,
+        "category": history.category,
+        "date": timezone.localtime(history.occurred_at).strftime("%Y-%m-%d %H:%M"),
+        "user": history.actor_label,
+        "description": history.description,
+        "snapshot": history.snapshot,
+    }
+
+
+def attachment_data(attachment):
+    return {
+        "name": attachment.name,
+        "mimeType": attachment.mime_type,
+        "base64Data": attachment.base64_data,
+    }
+
+
+def document_data(document):
+    return {
+        "id": document.public_id,
+        "title": document.title,
+        "drafter": document.drafter.display_name,
+        "department": document.department_name,
+        "form": document.form_name,
+        "status": document.status,
+        "draftedAt": iso_date(document.drafted_at),
+        "dueDate": iso_date(document.due_date),
+        "progress": document.progress,
+        "documentNo": document.document_no,
+        "effectiveDate": iso_date(document.effective_date),
+        "cooperationDepartment": document.cooperation_department,
+        "agreement": document.agreement,
+        "content": document.content,
+        "urgent": document.urgent,
+        "receivedRequest": document.received_request,
+        "canCancel": document.can_cancel,
+        "canReuse": document.can_reuse,
+        "canEdit": document.can_edit,
+        "departmentVisible": document.department_visible,
+        "receivers": document.receivers,
+        "references": document.references,
+        "viewers": document.viewers,
+        "publicReceivers": document.public_receivers,
+        "linkedDocuments": document.linked_documents,
+        "attachments": [attachment_data(item) for item in document.attachments.all()],
+        "documentLayout": document.document_layout,
+        "formFields": document.form_fields,
+        "lineItems": document.line_items,
+        "steps": [step_data(item) for item in document.steps.all()],
+        "histories": [history_data(item) for item in document.histories.all()],
+    }
+
+
+def leave_data(request):
+    return {
+        "id": request.public_id,
+        "userId": request.user.username,
+        "userName": request.user.display_name,
+        "department": request.user.department.name if request.user.department else "",
+        "type": request.leave_type,
+        "startDate": iso_date(request.start_date),
+        "endDate": iso_date(request.end_date),
+        "days": float(request.days),
+        "reason": request.reason,
+        "status": request.status,
+        "ceoStatus": request.ceo_status,
+        "rejectedBy": request.rejected_by,
+        "directEntry": request.direct_entry,
+        "registeredBy": request.registered_by.display_name if request.registered_by else "",
+        "acknowledged": request.acknowledged,
+    }
