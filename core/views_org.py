@@ -4,8 +4,8 @@ from django.contrib.auth import get_user_model
 from django.http import JsonResponse
 
 from .api import ApiError, endpoint, parse_json, require_fields
-from .models import Department, PortalSetting
-from .serializers import user_data
+from .models import ApprovalDocument, Department, PortalSetting
+from .serializers import settings_data, user_data
 
 User = get_user_model()
 
@@ -66,6 +66,53 @@ def employees(request):
     return JsonResponse({"employees": [user_data(user) for user in users]})
 
 
+@endpoint(["PATCH"], admin=True)
+def employee_detail(request, user_id):
+    user = User.objects.select_related("department").filter(username=user_id).first()
+    if user is None:
+        raise ApiError("직원을 찾을 수 없습니다.", status=404, code="not_found")
+    data = parse_json(request)
+    updated = []
+    if "department" in data:
+        department_name = str(data["department"] or "").strip()
+        require_fields({"department": department_name}, ["department"])
+        user.department, _ = Department.objects.get_or_create(name=department_name)
+        updated.append("department")
+    if "position" in data:
+        user.position = str(data["position"] or "").strip()
+        updated.append("position")
+    if "hireDate" in data:
+        try:
+            user.hire_date = date.fromisoformat(str(data["hireDate"]))
+        except ValueError as exc:
+            raise ApiError("입사일은 YYYY-MM-DD 형식이어야 합니다.") from exc
+        updated.append("hire_date")
+    password = str(data.get("password") or "").strip()
+    if password:
+        user.set_password(password)
+        updated.append("password")
+    if updated:
+        user.save(update_fields=updated)
+    return JsonResponse({"user": user_data(user)})
+
+
+@endpoint(["PATCH"], admin=True)
+def department_detail(request, department_id):
+    department = Department.objects.filter(pk=department_id).first()
+    if department is None:
+        raise ApiError("부서를 찾을 수 없습니다.", status=404, code="not_found")
+    data = parse_json(request)
+    name = str(data.get("name") or "").strip()
+    require_fields({"name": name}, ["name"])
+    if Department.objects.exclude(pk=department.pk).filter(name=name).exists():
+        raise ApiError("이미 사용 중인 부서명입니다.", code="department_conflict")
+    old_name = department.name
+    department.name = name
+    department.save(update_fields=["name"])
+    ApprovalDocument.objects.filter(department_name=old_name).update(department_name=name)
+    return JsonResponse({"id": department.pk, "name": department.name})
+
+
 @endpoint(["GET", "PATCH"], dev_fallback=True)
 def portal_settings(request):
     setting = PortalSetting.load()
@@ -73,6 +120,12 @@ def portal_settings(request):
         if not request.api_user.is_staff:
             raise ApiError("관리자 권한이 필요합니다.", status=403, code="permission_denied")
         data = parse_json(request)
+        if len(str(data.get("customLogoBase64") or "")) > 7_000_000:
+            raise ApiError(
+                "로고 파일은 5MB 이하만 사용할 수 있습니다.",
+                status=413,
+                code="file_too_large",
+            )
         field_map = {
             "portalName": "portal_name",
             "annualLeaveByYear": "annual_leave_by_year",
@@ -80,6 +133,11 @@ def portal_settings(request):
             "adminOtpEnabled": "admin_otp_enabled",
             "settingsPasswordEnabled": "settings_password_enabled",
             "adminDocumentAccessEnabled": "admin_document_access_enabled",
+            "customLogoBase64": "custom_logo_base64",
+            "customLogoFileName": "custom_logo_file_name",
+            "enabledAppIds": "enabled_app_ids",
+            "organizationWideDocumentCategories": "organization_wide_document_categories",
+            "documentCategoryViewerIds": "document_category_viewer_ids",
         }
         updated = []
         for external, internal in field_map.items():
@@ -88,11 +146,4 @@ def portal_settings(request):
                 updated.append(internal)
         if updated:
             setting.save(update_fields=updated + ["updated_at"])
-    return JsonResponse({
-        "portalName": setting.portal_name,
-        "annualLeaveByYear": setting.annual_leave_by_year,
-        "monthlyLeavePerMonth": setting.monthly_leave_per_month,
-        "adminOtpEnabled": setting.admin_otp_enabled,
-        "settingsPasswordEnabled": setting.settings_password_enabled,
-        "adminDocumentAccessEnabled": setting.admin_document_access_enabled,
-    })
+    return JsonResponse(settings_data(setting))

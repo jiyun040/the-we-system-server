@@ -1,15 +1,20 @@
 from django.urls import path
 
-from . import views, views_approvals, views_auth, views_forms, views_leave, views_org
+from . import views, views_approvals, views_auth, views_bootstrap, views_forms, views_leave, views_org
 
 urlpatterns = [
     path("health", views.health, name="health"),
+    path("bootstrap", views_bootstrap.bootstrap, name="bootstrap"),
     path("auth/login", views_auth.login, name="login"),
     path("auth/register", views_auth.register, name="register"),
     path("auth/logout", views_auth.logout, name="logout"),
     path("auth/me", views_auth.me, name="me"),
+    path("auth/verify-password", views_auth.verify_password, name="verify-password"),
+    path("admin/verify-otp", views_auth.verify_admin_otp, name="verify-admin-otp"),
     path("organization/departments", views_org.departments, name="departments"),
     path("organization/employees", views_org.employees, name="employees"),
+    path("organization/employees/<str:user_id>", views_org.employee_detail, name="employee-detail"),
+    path("organization/departments/<int:department_id>", views_org.department_detail, name="department-detail"),
     path("settings", views_org.portal_settings, name="portal-settings"),
     path("approval-forms", views_forms.forms, name="forms"),
     path("approval-forms/<slug:form_id>", views_forms.form_detail, name="form-detail"),

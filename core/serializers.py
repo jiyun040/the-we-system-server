@@ -44,7 +44,7 @@ def step_data(step):
         "department": step.department,
         "type": step.step_type,
         "role": step.role,
-        "status": step.status,
+        "status": "결재 예정" if step.status == "예정" else step.status,
         "approvedAt": timezone.localtime(step.approved_at).strftime("%m.%d %H:%M")
         if step.approved_at
         else None,
@@ -125,4 +125,20 @@ def leave_data(request):
         "directEntry": request.direct_entry,
         "registeredBy": request.registered_by.display_name if request.registered_by else "",
         "acknowledged": request.acknowledged,
+    }
+
+
+def settings_data(setting):
+    return {
+        "portalName": setting.portal_name,
+        "annualLeaveByYear": setting.annual_leave_by_year,
+        "monthlyLeavePerMonth": setting.monthly_leave_per_month,
+        "adminOtpEnabled": setting.admin_otp_enabled,
+        "settingsPasswordEnabled": setting.settings_password_enabled,
+        "adminDocumentAccessEnabled": setting.admin_document_access_enabled,
+        "customLogoBase64": setting.custom_logo_base64,
+        "customLogoFileName": setting.custom_logo_file_name,
+        "enabledAppIds": setting.enabled_app_ids,
+        "organizationWideDocumentCategories": setting.organization_wide_document_categories,
+        "documentCategoryViewerIds": setting.document_category_viewer_ids,
     }

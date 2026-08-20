@@ -108,6 +108,7 @@ CORS_ALLOW_ALL_ORIGINS = DEBUG and env_bool("CORS_ALLOW_ALL_ORIGINS", False)
 DEV_ALLOW_ANONYMOUS = DEBUG and env_bool("DEV_ALLOW_ANONYMOUS", True)
 DEV_DEFAULT_USERNAME = os.getenv("DEV_DEFAULT_USERNAME", "edu_manager")
 TOKEN_TTL_HOURS = int(os.getenv("TOKEN_TTL_HOURS", "168"))
+DATA_UPLOAD_MAX_MEMORY_SIZE = int(os.getenv("DATA_UPLOAD_MAX_MEMORY_SIZE", str(20 * 1024 * 1024)))
 
 if not DEBUG:
     if SECRET_KEY == "local-development-only-secret-key" or len(SECRET_KEY) < 32:

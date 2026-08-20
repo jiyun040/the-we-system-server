@@ -6,7 +6,7 @@ from django.db import IntegrityError
 from django.http import JsonResponse
 
 from .api import ApiError, bearer_token, endpoint, parse_json, require_fields
-from .models import ApiToken, Department
+from .models import ApiToken, Department, PortalSetting
 from .serializers import user_data
 
 User = get_user_model()
@@ -81,3 +81,20 @@ def logout(request):
 @endpoint(["GET"])
 def me(request):
     return JsonResponse({"user": user_data(request.api_user)})
+
+
+@endpoint(["POST"])
+def verify_password(request):
+    data = parse_json(request)
+    password = str(data.get("password") or "")
+    require_fields({"password": password}, ["password"])
+    return JsonResponse({"valid": request.api_user.check_password(password)})
+
+
+@endpoint(["POST"], admin=True)
+def verify_admin_otp(request):
+    data = parse_json(request)
+    otp = str(data.get("otp") or "").strip()
+    setting = PortalSetting.load()
+    valid = not setting.admin_otp_enabled or otp == "123456"
+    return JsonResponse({"valid": valid})

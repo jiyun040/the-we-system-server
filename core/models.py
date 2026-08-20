@@ -11,6 +11,14 @@ def default_annual_leave_policy():
     return {"1": 15, "2": 15, "3": 16, "4": 16, "5": 17, "10": 19}
 
 
+def default_enabled_apps():
+    return ["approval", "attendance", "leave"]
+
+
+def default_wide_document_categories():
+    return ["지원", "회계", "근태", "협조"]
+
+
 class Department(models.Model):
     name = models.CharField(max_length=100, unique=True)
     description = models.CharField(max_length=255, blank=True)
@@ -218,6 +226,13 @@ class PortalSetting(models.Model):
     admin_otp_enabled = models.BooleanField(default=True)
     settings_password_enabled = models.BooleanField(default=True)
     admin_document_access_enabled = models.BooleanField(default=True)
+    custom_logo_base64 = models.TextField(blank=True)
+    custom_logo_file_name = models.CharField(max_length=255, blank=True)
+    enabled_app_ids = models.JSONField(default=default_enabled_apps)
+    organization_wide_document_categories = models.JSONField(
+        default=default_wide_document_categories
+    )
+    document_category_viewer_ids = models.JSONField(default=dict, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     @classmethod
