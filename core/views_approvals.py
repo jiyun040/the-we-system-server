@@ -133,7 +133,7 @@ def replace_steps(document, supplied, drafter):
                 "department": approver.department.name if approver.department else "",
                 "type": "승인",
                 "role": approver.position,
-                "status": "예정",
+                "status": "결재 예정",
                 "approverId": approver.username,
             })
     rows = []
@@ -306,11 +306,20 @@ def submit_document(request, document_id):
             raise ApiError("문서를 상신할 권한이 없습니다.", status=403, code="permission_denied")
         if document.status != ApprovalDocument.Status.DRAFT:
             raise ApiError("작성 중인 문서만 상신할 수 있습니다.", status=409, code="invalid_state")
-        steps = list(document.steps.select_for_update())
-        next_step = next((step for step in steps if step.status != "완료"), None)
+        steps = list(document.steps.select_for_update().order_by("order"))
+        for index, step in enumerate(steps):
+            if index == 0:
+                step.status = "완료"
+                step.approved_at = step.approved_at or timezone.now()
+            elif index == 1:
+                step.status = "진행중"
+                step.approved_at = None
+            else:
+                step.status = "결재 예정"
+                step.approved_at = None
+            step.save(update_fields=["status", "approved_at"])
+        next_step = steps[1] if len(steps) > 1 else None
         if next_step:
-            next_step.status = "진행중"
-            next_step.save(update_fields=["status"])
             document.status = ApprovalDocument.Status.PENDING
         else:
             document.status = ApprovalDocument.Status.APPROVED
