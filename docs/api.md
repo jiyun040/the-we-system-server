@@ -19,10 +19,13 @@
 | Method | Path | 설명 |
 |---|---|---|
 | GET | `/health` | 서버 상태 |
+| GET | `/bootstrap` | 로그인 사용자의 전체 앱 상태 복원 |
 | POST | `/auth/register` | 회원가입 |
 | POST | `/auth/login` | 토큰 발급 |
 | POST | `/auth/logout` | 현재 토큰 폐기 |
 | GET | `/auth/me` | 로그인 사용자 조회 |
+| POST | `/auth/verify-password` | 현재 사용자 비밀번호 재확인 |
+| POST | `/admin/verify-otp` | 관리자 OTP 확인 |
 
 로그인 요청:
 
@@ -51,6 +54,8 @@
 | POST | `/organization/departments` | 관리자 | 부서 생성 |
 | GET | `/organization/employees` | 사용자 | 직원 목록 |
 | POST | `/organization/employees` | 관리자 | 직원 생성 |
+| PATCH | `/organization/employees/{userId}` | 관리자 | 직원 정보·비밀번호 변경 |
+| PATCH | `/organization/departments/{departmentId}` | 관리자 | 부서명 변경 |
 | GET | `/settings` | 사용자 | 포털·연차·보안 설정 |
 | PATCH | `/settings` | 관리자 | 설정 변경 |
 
@@ -135,3 +140,15 @@
 - `POST /approvals/{documentId}/approve`
 
 이 호환 경로의 익명 접근은 `.env`의 `DEV_ALLOW_ANONYMOUS=true`이면서 디버그 모드일 때만 허용됩니다.
+
+## Flutter 연결 방식
+
+Flutter 앱은 로그인 성공 후 반환된 토큰을 보안 저장소에 보관합니다. Dio 요청 인터셉터는 토큰을 `Authorization` 헤더에 자동으로 추가하며, 401 응답을 받으면 만료된 토큰을 삭제합니다.
+
+로그인 또는 앱 새로고침 후 `/bootstrap`을 호출해 다음 데이터를 한 번에 동기화합니다.
+
+- 현재 사용자와 전체 조직도
+- 결재 양식과 자주 쓰는 양식
+- 접근 가능한 결재 문서, 결재선과 변경 이력
+- 휴가 신청과 확인 상태
+- 포털 이름·로고·앱 활성화·문서 접근·연차 정책

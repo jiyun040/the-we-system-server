@@ -48,7 +48,16 @@ flutter run -d chrome --web-port=8080 \
   --dart-define=API_BASE_URL=http://127.0.0.1:8000/api/v1
 ```
 
-주의: 현재 Flutter 소스의 `ApprovalRemoteDataSource`는 서버 호출 코드를 갖고 있지만 실제 Riverpod 컨트롤러에서 사용되지 않습니다. 따라서 위 환경변수만 전달하면 서버 호출 준비는 되지만, 화면 상태 전체가 서버 데이터로 전환되지는 않습니다. 클라이언트 컨트롤러의 로그인·기안·휴가 액션을 이 API에 연결하는 작업이 추가로 필요합니다.
+`API_BASE_URL`을 지정하면 Flutter 앱은 서버 모드로 동작합니다. 로그인 토큰은 플랫폼 보안 저장소에 보관되고 Dio 인터셉터가 모든 요청에 Bearer 토큰을 추가합니다. 앱을 새로고침해도 `/bootstrap` API를 통해 사용자, 조직, 양식, 결재 문서, 휴가와 포털 설정이 복원됩니다.
+
+`API_BASE_URL`을 지정하지 않으면 기존 Flutter 위젯 테스트와 UI 개발을 위한 목업 모드로 동작합니다.
+
+Android 에뮬레이터에서는 `127.0.0.1` 대신 다음 주소를 사용합니다.
+
+```bash
+flutter run -d emulator-5554 \
+  --dart-define=API_BASE_URL=http://10.0.2.2:8000/api/v1
+```
 
 ## 인증 예시
 
@@ -84,5 +93,6 @@ python manage.py test
 - `DEV_DEFAULT_USERNAME`: 익명 접근 시 사용할 로컬 계정
 - `TOKEN_TTL_HOURS`: 로그인 토큰 유효 시간
 - `DATABASE_PATH`: 선택 사항. SQLite 파일 위치
+- `DATA_UPLOAD_MAX_MEMORY_SIZE`: Base64 첨부파일 요청 최대 크기
 
 운영 환경에서는 `DJANGO_DEBUG=false`, `DEV_ALLOW_ANONYMOUS=false`로 설정해야 합니다.
