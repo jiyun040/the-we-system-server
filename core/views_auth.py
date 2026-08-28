@@ -3,7 +3,7 @@ from django.contrib.auth import authenticate, get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 
 from .api import ApiError, bearer_token, endpoint, parse_json, require_fields
 from .models import ApiToken, Department, PortalSetting
@@ -75,7 +75,7 @@ def logout(request):
     token = ApiToken.resolve(raw)
     if token:
         token.delete()
-    return JsonResponse({}, status=204)
+    return HttpResponse(status=204)
 
 
 @endpoint(["GET"])

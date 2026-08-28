@@ -1,4 +1,4 @@
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 from django.utils.text import slugify
 
 from .api import ApiError, endpoint, parse_json, require_fields
@@ -56,7 +56,7 @@ def form_detail(request, form_id):
         raise ApiError("관리자 권한이 필요합니다.", status=403, code="permission_denied")
     if request.method == "DELETE":
         form.delete()
-        return JsonResponse({}, status=204)
+        return HttpResponse(status=204)
     data = parse_json(request)
     updated = []
     for external, internal in FORM_FIELDS.items():
