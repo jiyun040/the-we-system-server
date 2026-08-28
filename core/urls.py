@@ -1,0 +1,34 @@
+from django.urls import path
+
+from . import views, views_approvals, views_auth, views_bootstrap, views_forms, views_leave, views_org
+
+urlpatterns = [
+    path("health", views.health, name="health"),
+    path("bootstrap", views_bootstrap.bootstrap, name="bootstrap"),
+    path("auth/login", views_auth.login, name="login"),
+    path("auth/register", views_auth.register, name="register"),
+    path("auth/logout", views_auth.logout, name="logout"),
+    path("auth/me", views_auth.me, name="me"),
+    path("auth/verify-password", views_auth.verify_password, name="verify-password"),
+    path("admin/verify-otp", views_auth.verify_admin_otp, name="verify-admin-otp"),
+    path("organization/departments", views_org.departments, name="departments"),
+    path("organization/employees", views_org.employees, name="employees"),
+    path("organization/employees/<str:user_id>", views_org.employee_detail, name="employee-detail"),
+    path("organization/departments/<int:department_id>", views_org.department_detail, name="department-detail"),
+    path("settings", views_org.portal_settings, name="portal-settings"),
+    path("approval-forms", views_forms.forms, name="forms"),
+    path("approval-forms/<slug:form_id>", views_forms.form_detail, name="form-detail"),
+    path("approvals/dashboard", views_approvals.dashboard, name="approval-dashboard"),
+    path("approvals/documents", views_approvals.documents, name="documents"),
+    path("approvals/documents/<str:document_id>", views_approvals.document_detail, name="document-detail"),
+    path("approvals/documents/<str:document_id>/submit", views_approvals.submit_document, name="document-submit"),
+    path("approvals/<str:document_id>/approve", views_approvals.act_on_document, {"action": "approve"}, name="document-approve"),
+    path("approvals/<str:document_id>/reject", views_approvals.act_on_document, {"action": "reject"}, name="document-reject"),
+    path("approvals/<str:document_id>/cancel", views_approvals.cancel_document, name="document-cancel"),
+    path("leave/requests", views_leave.leave_requests, name="leave-requests"),
+    path("leave/summary", views_leave.leave_summary, name="leave-summary"),
+    path("leave/requests/<str:leave_id>/approve", views_leave.act_on_leave, {"action": "approve"}, name="leave-approve"),
+    path("leave/requests/<str:leave_id>/reject", views_leave.act_on_leave, {"action": "reject"}, name="leave-reject"),
+    path("leave/requests/<str:leave_id>/cancel", views_leave.cancel_leave, name="leave-cancel"),
+    path("leave/requests/<str:leave_id>/acknowledge", views_leave.acknowledge_leave, name="leave-acknowledge"),
+]
