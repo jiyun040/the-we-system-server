@@ -220,7 +220,7 @@ class LeaveRequest(models.Model):
 
 class PortalSetting(models.Model):
     singleton_key = models.PositiveSmallIntegerField(default=1, unique=True, editable=False)
-    portal_name = models.CharField(max_length=100, default="더 위 시스템")
+    portal_name = models.CharField(max_length=100, default="더우리기술 전자결재")
     annual_leave_by_year = models.JSONField(default=default_annual_leave_policy)
     monthly_leave_per_month = models.PositiveSmallIntegerField(default=1)
     admin_otp_enabled = models.BooleanField(default=True)

@@ -3,7 +3,7 @@ import json
 from django.core.management import call_command
 from django.test import TestCase, override_settings
 
-from core.models import ApprovalDocument, LeaveRequest
+from core.models import ApprovalDocument, Department, LeaveRequest, User
 
 
 @override_settings(DEV_ALLOW_ANONYMOUS=True, DEV_DEFAULT_USERNAME="edu_manager")
@@ -56,6 +56,42 @@ class ApiFlowTests(TestCase):
         self.assertGreaterEqual(len(body["formTemplates"]), 1)
         self.assertGreaterEqual(len(body["documents"]), 1)
         self.assertIn("enabledAppIds", body["settings"])
+
+    def test_super_admin_is_hidden_from_employee_and_organization_data(self):
+        department = Department.objects.create(name="시스템관리")
+        User.objects.create_superuser(
+            username="admin",
+            password="admin0630",
+            first_name="슈퍼어드민",
+            email="admin@example.invalid",
+            department=department,
+            position="시스템 관리자",
+        )
+        token = self.login("admin", "admin0630")
+
+        bootstrap = self.client.get(
+            "/api/v1/bootstrap", **self.headers(token)
+        ).json()
+        self.assertEqual(bootstrap["currentUser"]["id"], "admin")
+        self.assertNotIn("admin", [item["id"] for item in bootstrap["accounts"]])
+
+        employees = self.client.get(
+            "/api/v1/organization/employees", **self.headers(token)
+        ).json()["employees"]
+        self.assertNotIn("admin", [item["id"] for item in employees])
+
+        departments = self.client.get(
+            "/api/v1/organization/departments", **self.headers(token)
+        ).json()["departments"]
+        self.assertNotIn("시스템관리", [item["name"] for item in departments])
+
+        detail = self.client.patch(
+            "/api/v1/organization/employees/admin",
+            data=json.dumps({"position": "노출되면 안 됨"}),
+            content_type="application/json",
+            **self.headers(token),
+        )
+        self.assertEqual(detail.status_code, 404)
 
     def test_password_otp_and_settings_round_trip(self):
         token = self.login()

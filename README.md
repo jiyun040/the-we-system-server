@@ -23,20 +23,12 @@ source .venv/bin/activate
 python -m pip install -r requirements.txt
 cp .env.example .env
 python manage.py migrate
-python manage.py seed_demo
 python manage.py runserver 0.0.0.0:8000
 ```
 
 정상 실행 여부는 `http://127.0.0.1:8000/api/v1/health`에서 확인할 수 있습니다. Django 관리 화면은 `http://127.0.0.1:8000/admin/`입니다.
 
-데모 계정은 다음과 같습니다.
-
-| 용도 | 아이디 | 비밀번호 |
-|---|---|---|
-| 관리자 | `edu_manager` | `1234` |
-| 일반 사용자 | `edu_teacher` | `1234` |
-
-`seed_demo`는 기존 데이터를 지우지 않는 멱등 명령입니다. 이미 생성된 계정의 비밀번호도 덮어쓰지 않습니다.
+실제 서비스와 운영 서버에서는 `seed_demo`를 실행하지 않습니다. 필요한 계정과 조직 정보는 관리자 기능 또는 명시적인 운영 계정 생성 절차로만 등록합니다.
 
 ## Flutter 로컬 실행
 
@@ -89,10 +81,15 @@ python manage.py test
 - `DJANGO_SECRET_KEY`: 운영에서는 반드시 긴 임의 값으로 변경
 - `DJANGO_ALLOWED_HOSTS`: 쉼표로 구분한 허용 호스트
 - `CORS_ALLOWED_ORIGINS`: 쉼표로 구분한 Flutter Web 출처
+- `CSRF_TRUSTED_ORIGINS`: 쉼표로 구분한 신뢰할 수 있는 HTTPS 출처
 - `DEV_ALLOW_ANONYMOUS`: 기존 Flutter 목업 연동을 위한 개발 전용 익명 접근
 - `DEV_DEFAULT_USERNAME`: 익명 접근 시 사용할 로컬 계정
 - `TOKEN_TTL_HOURS`: 로그인 토큰 유효 시간
 - `DATABASE_PATH`: 선택 사항. SQLite 파일 위치
+- `DB_ENGINE`: `sqlite` 또는 `mysql`
+- `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`: MySQL 연결 정보
+- `DB_CONN_MAX_AGE`: MySQL 연결 재사용 시간(초)
+- `DB_SSL_CA`: RDS TLS 인증서 번들 경로
 - `DATA_UPLOAD_MAX_MEMORY_SIZE`: Base64 첨부파일 요청 최대 크기
 
 운영 환경에서는 `DJANGO_DEBUG=false`, `DEV_ALLOW_ANONYMOUS=false`로 설정해야 합니다.

@@ -63,7 +63,7 @@ class Migration(migrations.Migration):
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
                 ('singleton_key', models.PositiveSmallIntegerField(default=1, editable=False, unique=True)),
-                ('portal_name', models.CharField(default='더 위 시스템', max_length=100)),
+                ('portal_name', models.CharField(default='더우리기술 전자결재', max_length=100)),
                 ('annual_leave_by_year', models.JSONField(default=core.models.default_annual_leave_policy)),
                 ('monthly_leave_per_month', models.PositiveSmallIntegerField(default=1)),
                 ('admin_otp_enabled', models.BooleanField(default=True)),

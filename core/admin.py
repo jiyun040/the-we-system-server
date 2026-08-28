@@ -17,7 +17,7 @@ from .models import (
 @admin.register(User)
 class TheWeUserAdmin(UserAdmin):
     fieldsets = UserAdmin.fieldsets + (
-        ("더 위 조직 정보", {"fields": ("department", "position", "hire_date")}),
+        ("조직 정보", {"fields": ("department", "position", "hire_date")}),
     )
     list_display = ("username", "display_name", "department", "position", "is_staff", "is_active")
 

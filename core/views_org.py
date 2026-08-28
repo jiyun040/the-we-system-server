@@ -24,14 +24,17 @@ def departments(request):
             status=201 if created else 200,
         )
     rows = []
-    queryset = Department.objects.prefetch_related("members").all()
+    queryset = Department.objects.prefetch_related("members").exclude(name="시스템관리")
     for department in queryset:
         rows.append(
             {
                 "id": department.pk,
                 "name": department.name,
                 "description": department.description,
-                "members": [user_data(user) for user in department.members.filter(is_active=True)],
+                "members": [
+                    user_data(user)
+                    for user in department.members.filter(is_active=True).exclude(username="admin")
+                ],
             }
         )
     return JsonResponse({"departments": rows})
@@ -62,13 +65,23 @@ def employees(request):
             hire_date=hire_date,
         )
         return JsonResponse({"user": user_data(user)}, status=201)
-    users = User.objects.select_related("department").filter(is_active=True).order_by("first_name", "username")
+    users = (
+        User.objects.select_related("department")
+        .filter(is_active=True)
+        .exclude(username="admin")
+        .order_by("first_name", "username")
+    )
     return JsonResponse({"employees": [user_data(user) for user in users]})
 
 
 @endpoint(["PATCH"], admin=True)
 def employee_detail(request, user_id):
-    user = User.objects.select_related("department").filter(username=user_id).first()
+    user = (
+        User.objects.select_related("department")
+        .filter(username=user_id)
+        .exclude(username="admin")
+        .first()
+    )
     if user is None:
         raise ApiError("직원을 찾을 수 없습니다.", status=404, code="not_found")
     data = parse_json(request)

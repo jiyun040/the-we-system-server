@@ -9,8 +9,11 @@ from .views_approvals import can_read, document_queryset
 @endpoint(["GET"])
 def bootstrap(request):
     user = request.api_user
-    accounts = User.objects.select_related("department").filter(is_active=True).order_by(
-        "first_name", "username"
+    accounts = (
+        User.objects.select_related("department")
+        .filter(is_active=True)
+        .exclude(username="admin")
+        .order_by("first_name", "username")
     )
     forms = list(ApprovalFormTemplate.objects.all())
     documents = [document for document in document_queryset() if can_read(user, document)]
