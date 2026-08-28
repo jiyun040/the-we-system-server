@@ -5,7 +5,7 @@ from datetime import date, timedelta
 
 from django.db import transaction
 from django.db.models import Q
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
 
 from .api import ApiError, endpoint, parse_json, require_fields
@@ -264,7 +264,7 @@ def document_detail(request, document_id):
         if document.drafter_id != request.api_user.id and not request.api_user.is_staff:
             raise ApiError("문서를 삭제할 권한이 없습니다.", status=403, code="permission_denied")
         document.delete()
-        return JsonResponse({}, status=204)
+        return HttpResponse(status=204)
     if not document.can_edit or (document.drafter_id != request.api_user.id and not request.api_user.is_staff):
         raise ApiError("문서를 수정할 수 없습니다.", status=409, code="invalid_state")
     data = parse_json(request)
