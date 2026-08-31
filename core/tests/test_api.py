@@ -46,7 +46,7 @@ class ApiFlowTests(TestCase):
         self.assertEqual(response.json()["user"]["id"], "edu_manager")
         self.assertNotIn("password", response.json()["user"])
 
-    def test_direct_registration_endpoint_is_not_exposed(self):
+    def test_direct_registration_rejects_unregistered_employee(self):
         user_count = User.objects.count()
         department_count = Department.objects.count()
         payload = {
@@ -58,17 +58,37 @@ class ApiFlowTests(TestCase):
             "email": "direct-signup@example.com",
         }
 
-        for path in ("/api/v1/auth/register", "/api/v1/auth/register/"):
-            response = self.client.post(
-                path,
-                data=json.dumps(payload),
-                content_type="application/json",
-            )
-            self.assertEqual(response.status_code, 404)
+        response = self.client.post(
+            "/api/v1/auth/register",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["error"]["code"], "registration_not_allowed")
 
         self.assertEqual(User.objects.count(), user_count)
         self.assertEqual(Department.objects.count(), department_count)
         self.assertFalse(User.objects.filter(username="direct_signup").exists())
+
+    def test_registered_employee_can_sign_up_without_receiving_a_token(self):
+        response = self.client.post(
+            "/api/v1/auth/register",
+            data=json.dumps({
+                "id": "kim_hyeonjeong",
+                "password": "safe-password-1234",
+                "name": "김현정",
+                "department": "공무",
+                "position": "대리",
+            }),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertNotIn("token", response.json())
+        user = User.objects.get(username="kim_hyeonjeong")
+        self.assertEqual(user.first_name, "김현정")
+        self.assertEqual(user.department.name, "공무")
+        self.assertTrue(user.check_password("safe-password-1234"))
 
     def test_bootstrap_restores_remote_application_state(self):
         token = self.login()
