@@ -21,6 +21,8 @@ SIGNUP_EMPLOYEE_PROFILES = {
     "조용덕": ("연구소", "부장"),
 }
 
+KIM_HYOMIN_ADMIN_USERNAME = "we061046"
+
 
 @endpoint(["POST"], auth=False)
 def login(request):
@@ -87,6 +89,11 @@ def register(request):
             first_name=normalized["name"],
             department=department,
             position=normalized["position"],
+            is_staff=(
+                normalized["id"].lower() == KIM_HYOMIN_ADMIN_USERNAME
+                and normalized["name"] == "김효민"
+                and expected_profile == ("경리부", "대리")
+            ),
         )
     except IntegrityError as exc:
         raise ApiError("계정을 만들지 못했습니다.", code="account_conflict") from exc

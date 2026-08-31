@@ -99,6 +99,64 @@ class ApiFlowTests(TestCase):
         self.assertEqual(user.department.name, "공무")
         self.assertTrue(user.check_password("safe-password-1234"))
 
+    def test_kim_hyomin_account_receives_server_admin_permission(self):
+        response = self.client.post(
+            "/api/v1/auth/register",
+            data=json.dumps({
+                "id": "we061046",
+                "password": "safe-password-1234",
+                "name": "김효민",
+                "department": "경리부",
+                "position": "대리",
+            }),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertTrue(response.json()["user"]["isAdmin"])
+        user = User.objects.get(username="we061046")
+        self.assertTrue(user.is_staff)
+        self.assertFalse(user.is_superuser)
+
+        otp = self.client.post(
+            "/api/v1/admin/verify-otp",
+            data=json.dumps({"otp": "123456"}),
+            content_type="application/json",
+            **self.headers(self.login("we061046", "safe-password-1234")),
+        )
+        self.assertEqual(otp.status_code, 200, otp.content)
+        self.assertTrue(otp.json()["valid"])
+
+    def test_kim_hyomin_admin_migration_updates_existing_account_only(self):
+        department, _ = Department.objects.get_or_create(name="경리부")
+        target = User.objects.create_user(
+            username="we061046",
+            password="safe-password-1234",
+            first_name="김효민",
+            department=department,
+            position="대리",
+            is_staff=False,
+        )
+        other = User.objects.create_user(
+            username="not-kim-hyomin",
+            password="safe-password-1234",
+            first_name="김효민",
+            department=department,
+            position="대리",
+            is_staff=False,
+        )
+        migration = import_module(
+            "core.migrations.0004_grant_kim_hyomin_admin_access"
+        )
+
+        migration.grant_kim_hyomin_admin_access(apps, None)
+
+        target.refresh_from_db()
+        other.refresh_from_db()
+        self.assertTrue(target.is_staff)
+        self.assertFalse(target.is_superuser)
+        self.assertFalse(other.is_staff)
+
     def test_bootstrap_restores_remote_application_state(self):
         token = self.login()
         response = self.client.get("/api/v1/bootstrap", **self.headers(token))
