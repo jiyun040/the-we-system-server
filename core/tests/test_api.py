@@ -46,6 +46,30 @@ class ApiFlowTests(TestCase):
         self.assertEqual(response.json()["user"]["id"], "edu_manager")
         self.assertNotIn("password", response.json()["user"])
 
+    def test_direct_registration_endpoint_is_not_exposed(self):
+        user_count = User.objects.count()
+        department_count = Department.objects.count()
+        payload = {
+            "id": "direct_signup",
+            "password": "safe-password-1234",
+            "name": "직접가입",
+            "department": "외부생성부서",
+            "position": "사원",
+            "email": "direct-signup@example.com",
+        }
+
+        for path in ("/api/v1/auth/register", "/api/v1/auth/register/"):
+            response = self.client.post(
+                path,
+                data=json.dumps(payload),
+                content_type="application/json",
+            )
+            self.assertEqual(response.status_code, 404)
+
+        self.assertEqual(User.objects.count(), user_count)
+        self.assertEqual(Department.objects.count(), department_count)
+        self.assertFalse(User.objects.filter(username="direct_signup").exists())
+
     def test_bootstrap_restores_remote_application_state(self):
         token = self.login()
         response = self.client.get("/api/v1/bootstrap", **self.headers(token))
