@@ -1,9 +1,18 @@
 import json
+from importlib import import_module
 
+from django.apps import apps
 from django.core.management import call_command
 from django.test import TestCase, override_settings
 
-from core.models import ApprovalDocument, Department, LeaveRequest, User
+from core.models import (
+    ApprovalDocument,
+    ApprovalFormTemplate,
+    Department,
+    LeaveRequest,
+    PortalSetting,
+    User,
+)
 
 
 @override_settings(DEV_ALLOW_ANONYMOUS=True, DEV_DEFAULT_USERNAME="edu_manager")
@@ -100,6 +109,104 @@ class ApiFlowTests(TestCase):
         self.assertGreaterEqual(len(body["formTemplates"]), 1)
         self.assertGreaterEqual(len(body["documents"]), 1)
         self.assertIn("enabledAppIds", body["settings"])
+        self.assertIn("departments", body)
+
+    def test_default_form_restore_preserves_custom_forms_and_portal_settings(self):
+        customized = ApprovalFormTemplate.objects.get(slug="business-draft")
+        customized.name = "내가 수정한 업무기안"
+        customized.default_title = "커스텀 제목"
+        customized.save(update_fields=["name", "default_title"])
+        custom_form = ApprovalFormTemplate.objects.create(
+            slug="my-custom-form",
+            category="사용자 정의",
+            name="내 커스텀 양식",
+            default_title="직접 만든 제목",
+        )
+        ApprovalFormTemplate.objects.filter(slug="payroll-draft").delete()
+
+        settings = PortalSetting.load()
+        settings.portal_name = "커스텀 포털명"
+        settings.monthly_leave_per_month = 2
+        settings.enabled_app_ids = ["approval"]
+        settings.save(
+            update_fields=[
+                "portal_name",
+                "monthly_leave_per_month",
+                "enabled_app_ids",
+            ]
+        )
+
+        migration = import_module(
+            "core.migrations.0003_restore_default_approval_forms"
+        )
+        migration.restore_default_approval_forms(apps, None)
+
+        customized.refresh_from_db()
+        custom_form.refresh_from_db()
+        settings.refresh_from_db()
+        self.assertEqual(customized.name, "내가 수정한 업무기안")
+        self.assertEqual(customized.default_title, "커스텀 제목")
+        self.assertEqual(custom_form.name, "내 커스텀 양식")
+        self.assertTrue(
+            ApprovalFormTemplate.objects.filter(slug="payroll-draft").exists()
+        )
+        self.assertEqual(settings.portal_name, "커스텀 포털명")
+        self.assertEqual(settings.monthly_leave_per_month, 2)
+        self.assertEqual(settings.enabled_app_ids, ["approval"])
+
+    def test_department_and_employee_crud(self):
+        token = self.login()
+        headers = self.headers(token)
+        created_department = self.client.post(
+            "/api/v1/organization/departments",
+            data=json.dumps({"name": "신규부서"}),
+            content_type="application/json",
+            **headers,
+        )
+        self.assertEqual(created_department.status_code, 201, created_department.content)
+        department_id = created_department.json()["id"]
+
+        created_employee = self.client.post(
+            "/api/v1/organization/employees",
+            data=json.dumps({
+                "id": "new_member",
+                "password": "safe-password-1234",
+                "name": "신규직원",
+                "department": "신규부서",
+                "position": "사원",
+                "email": "new-member@example.com",
+                "hireDate": "2026-08-31",
+            }),
+            content_type="application/json",
+            **headers,
+        )
+        self.assertEqual(created_employee.status_code, 201, created_employee.content)
+
+        updated_employee = self.client.patch(
+            "/api/v1/organization/employees/new_member",
+            data=json.dumps({"name": "수정직원", "email": "updated@example.com"}),
+            content_type="application/json",
+            **headers,
+        )
+        self.assertEqual(updated_employee.status_code, 200, updated_employee.content)
+        self.assertEqual(updated_employee.json()["user"]["name"], "수정직원")
+
+        nonempty_delete = self.client.delete(
+            f"/api/v1/organization/departments/{department_id}", **headers
+        )
+        self.assertEqual(nonempty_delete.status_code, 409)
+
+        deleted_employee = self.client.delete(
+            "/api/v1/organization/employees/new_member", **headers
+        )
+        self.assertEqual(deleted_employee.status_code, 204)
+        self.assertFalse(User.objects.get(username="new_member").is_active)
+
+        deleted_department = self.client.delete(
+            f"/api/v1/organization/departments/{department_id}", **headers
+        )
+        self.assertEqual(deleted_department.status_code, 204)
+        self.assertFalse(Department.objects.filter(pk=department_id).exists())
 
     def test_super_admin_is_hidden_from_employee_and_organization_data(self):
         department = Department.objects.create(name="시스템관리")

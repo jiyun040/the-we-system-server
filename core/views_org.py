@@ -1,13 +1,22 @@
 from datetime import date
 
 from django.contrib.auth import get_user_model
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 
 from .api import ApiError, endpoint, parse_json, require_fields
 from .models import ApprovalDocument, Department, PortalSetting
 from .serializers import settings_data, user_data
 
 User = get_user_model()
+
+DEPARTMENT_ORDER = ["대표이사", "기술부", "연구소", "관리부", "공무", "경리부"]
+
+
+def department_sort_key(department):
+    try:
+        return (0, DEPARTMENT_ORDER.index(department.name))
+    except ValueError:
+        return (1, department.name)
 
 
 @endpoint(["GET", "POST"], dev_fallback=True)
@@ -24,7 +33,10 @@ def departments(request):
             status=201 if created else 200,
         )
     rows = []
-    queryset = Department.objects.prefetch_related("members").exclude(name="시스템관리")
+    queryset = sorted(
+        Department.objects.prefetch_related("members").exclude(name="시스템관리"),
+        key=department_sort_key,
+    )
     for department in queryset:
         rows.append(
             {
@@ -74,7 +86,7 @@ def employees(request):
     return JsonResponse({"employees": [user_data(user) for user in users]})
 
 
-@endpoint(["PATCH"], admin=True)
+@endpoint(["PATCH", "DELETE"], admin=True)
 def employee_detail(request, user_id):
     user = (
         User.objects.select_related("department")
@@ -84,8 +96,28 @@ def employee_detail(request, user_id):
     )
     if user is None:
         raise ApiError("직원을 찾을 수 없습니다.", status=404, code="not_found")
+    if request.method == "DELETE":
+        if user.pk == request.api_user.pk:
+            raise ApiError("현재 로그인한 계정은 삭제할 수 없습니다.")
+        user.api_tokens.all().delete()
+        user.department = None
+        user.is_active = False
+        user.save(update_fields=["department", "is_active"])
+        return HttpResponse(status=204)
     data = parse_json(request)
     updated = []
+    if "name" in data:
+        name = str(data["name"] or "").strip()
+        require_fields({"name": name}, ["name"])
+        user.first_name = name
+        updated.append("first_name")
+    if "email" in data:
+        email = str(data["email"] or "").strip()
+        require_fields({"email": email}, ["email"])
+        if User.objects.exclude(pk=user.pk).filter(email__iexact=email).exists():
+            raise ApiError("이미 사용 중인 이메일입니다.", code="email_conflict")
+        user.email = email
+        updated.append("email")
     if "department" in data:
         department_name = str(data["department"] or "").strip()
         require_fields({"department": department_name}, ["department"])
@@ -109,11 +141,21 @@ def employee_detail(request, user_id):
     return JsonResponse({"user": user_data(user)})
 
 
-@endpoint(["PATCH"], admin=True)
+@endpoint(["PATCH", "DELETE"], admin=True)
 def department_detail(request, department_id):
     department = Department.objects.filter(pk=department_id).first()
     if department is None:
         raise ApiError("부서를 찾을 수 없습니다.", status=404, code="not_found")
+    if request.method == "DELETE":
+        if department.members.filter(is_active=True).exists():
+            raise ApiError(
+                "소속 직원이 있는 부서는 삭제할 수 없습니다.",
+                status=409,
+                code="department_not_empty",
+            )
+        department.members.update(department=None)
+        department.delete()
+        return HttpResponse(status=204)
     data = parse_json(request)
     name = str(data.get("name") or "").strip()
     require_fields({"name": name}, ["name"])
