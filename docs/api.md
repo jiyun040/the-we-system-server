@@ -20,7 +20,6 @@
 |---|---|---|
 | GET | `/health` | 서버 상태 |
 | GET | `/bootstrap` | 로그인 사용자의 전체 앱 상태 복원 |
-| POST | `/auth/register` | 회원가입 |
 | POST | `/auth/login` | 토큰 발급 |
 | POST | `/auth/logout` | 현재 토큰 폐기 |
 | GET | `/auth/me` | 로그인 사용자 조회 |
@@ -33,18 +32,7 @@
 {"id": "edu_manager", "password": "1234"}
 ```
 
-회원가입 요청:
-
-```json
-{
-  "id": "new_user",
-  "password": "safe-password",
-  "name": "홍길동",
-  "department": "개발팀",
-  "position": "대리",
-  "email": "hong@example.com"
-}
-```
+공개 회원가입 엔드포인트는 제공하지 않습니다. 사용자 계정은 인증된 관리자가 `POST /organization/employees`로만 생성할 수 있습니다.
 
 ## 조직과 설정
 

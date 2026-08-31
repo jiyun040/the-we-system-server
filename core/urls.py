@@ -6,7 +6,6 @@ urlpatterns = [
     path("health", views.health, name="health"),
     path("bootstrap", views_bootstrap.bootstrap, name="bootstrap"),
     path("auth/login", views_auth.login, name="login"),
-    path("auth/register", views_auth.register, name="register"),
     path("auth/logout", views_auth.logout, name="logout"),
     path("auth/me", views_auth.me, name="me"),
     path("auth/verify-password", views_auth.verify_password, name="verify-password"),
