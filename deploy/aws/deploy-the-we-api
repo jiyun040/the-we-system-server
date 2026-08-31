@@ -14,7 +14,7 @@ cd "$APP_DIR"
 git fetch --prune origin main
 
 current_commit="$(git rev-parse HEAD)"
-target_commit="$(git rev-parse origin/main)"
+target_commit="$(git rev-parse FETCH_HEAD)"
 if [[ "$current_commit" == "$target_commit" ]]; then
   echo "Already deployed: $current_commit"
   exit 0
