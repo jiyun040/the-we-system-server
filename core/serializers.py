@@ -17,7 +17,7 @@ def user_data(user):
     }
 
 
-def form_data(form):
+def form_data(form, recent_count=None):
     return {
         "id": form.slug,
         "category": form.category,
@@ -34,7 +34,7 @@ def form_data(form):
         "documentLayout": form.document_layout,
         "lineItemRows": form.line_item_rows,
         "enabled": form.is_enabled,
-        "recentCount": form.recent_count,
+        "recentCount": form.recent_count if recent_count is None else recent_count,
     }
 
 

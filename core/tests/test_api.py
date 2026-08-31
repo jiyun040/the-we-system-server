@@ -111,6 +111,54 @@ class ApiFlowTests(TestCase):
         self.assertIn("enabledAppIds", body["settings"])
         self.assertIn("departments", body)
 
+    def test_frequent_forms_are_counted_per_actual_user_usage(self):
+        ApprovalDocument.objects.all().delete()
+        manager = User.objects.get(username="edu_manager")
+        teacher = User.objects.get(username="edu_teacher")
+        business = ApprovalFormTemplate.objects.get(slug="business-draft")
+        expense = ApprovalFormTemplate.objects.get(slug="expense-slip")
+
+        def create_document(public_id, drafter, form):
+            return ApprovalDocument.objects.create(
+                public_id=public_id,
+                title=public_id,
+                drafter=drafter,
+                department_name=drafter.department.name,
+                form_template=form,
+                form_name=form.name,
+            )
+
+        create_document("FREQ-MANAGER-1", manager, business)
+        create_document("FREQ-MANAGER-2", manager, business)
+        create_document("FREQ-MANAGER-3", manager, expense)
+        create_document("FREQ-TEACHER-1", teacher, expense)
+        create_document("FREQ-TEACHER-2", teacher, expense)
+        create_document("FREQ-TEACHER-3", teacher, expense)
+
+        manager_response = self.client.get(
+            "/api/v1/bootstrap",
+            **self.headers(self.login("edu_manager")),
+        )
+        teacher_response = self.client.get(
+            "/api/v1/bootstrap",
+            **self.headers(self.login("edu_teacher")),
+        )
+
+        self.assertEqual(
+            [
+                (form["id"], form["recentCount"])
+                for form in manager_response.json()["frequentForms"]
+            ],
+            [("business-draft", 2), ("expense-slip", 1)],
+        )
+        self.assertEqual(
+            [
+                (form["id"], form["recentCount"])
+                for form in teacher_response.json()["frequentForms"]
+            ],
+            [("expense-slip", 3)],
+        )
+
     def test_default_form_restore_preserves_custom_forms_and_portal_settings(self):
         customized = ApprovalFormTemplate.objects.get(slug="business-draft")
         customized.name = "내가 수정한 업무기안"

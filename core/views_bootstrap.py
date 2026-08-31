@@ -3,7 +3,7 @@ from django.http import JsonResponse
 from .api import endpoint
 from .models import ApprovalFormTemplate, Department, LeaveRequest, PortalSetting, User
 from .serializers import document_data, form_data, leave_data, settings_data, user_data
-from .views_approvals import can_read, document_queryset
+from .views_approvals import can_read, document_queryset, frequent_forms_for_user
 
 DEPARTMENT_ORDER = ["대표이사", "기술부", "연구소", "관리부", "공무", "경리부"]
 
@@ -25,6 +25,7 @@ def bootstrap(request):
         .order_by("first_name", "username")
     )
     forms = list(ApprovalFormTemplate.objects.all())
+    frequent_forms = frequent_forms_for_user(user)
     documents = [document for document in document_queryset() if can_read(user, document)]
     leaves = LeaveRequest.objects.select_related(
         "user", "user__department", "registered_by"
@@ -42,8 +43,8 @@ def bootstrap(request):
             "accounts": [user_data(account) for account in accounts],
             "departments": departments,
             "frequentForms": [
-                form_data(form)
-                for form in sorted(forms, key=lambda item: -item.recent_count)[:5]
+                form_data(form, recent_count=form.user_recent_count)
+                for form in frequent_forms
             ],
             "formTemplates": [form_data(form) for form in forms],
             "disabledFormTemplateIds": [form.slug for form in forms if not form.is_enabled],

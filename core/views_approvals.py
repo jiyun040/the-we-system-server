@@ -4,7 +4,7 @@ import uuid
 from datetime import date, timedelta
 
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
 
@@ -37,6 +37,24 @@ def document_queryset():
     return ApprovalDocument.objects.select_related(
         "drafter", "drafter__department", "form_template"
     ).prefetch_related("steps", "histories", "attachments")
+
+
+def frequent_forms_for_user(user):
+    if user is None:
+        return []
+    return list(
+        ApprovalFormTemplate.objects.filter(
+            is_enabled=True,
+            documents__drafter=user,
+        )
+        .annotate(
+            user_recent_count=Count(
+                "documents",
+                filter=Q(documents__drafter=user),
+            )
+        )
+        .order_by("-user_recent_count", "name")
+    )
 
 
 def can_read(user, document):
@@ -165,11 +183,14 @@ def set_progress(document):
 @endpoint(["GET"], auth=False, dev_fallback=True)
 def dashboard(request):
     user = request.api_user
-    forms = ApprovalFormTemplate.objects.filter(is_enabled=True).order_by("-recent_count", "name")[:5]
+    forms = frequent_forms_for_user(user)
     if user is None:
         return JsonResponse({
             "pendingCount": 0, "receivedCount": 0, "referenceCount": 0, "scheduledCount": 0,
-            "frequentForms": [form_data(form) for form in forms],
+            "frequentForms": [
+                form_data(form, recent_count=form.user_recent_count)
+                for form in forms
+            ],
             "processingDocuments": [], "waitingDocuments": [],
         })
     documents = list(document_queryset().exclude(status=ApprovalDocument.Status.DRAFT))
@@ -193,7 +214,10 @@ def dashboard(request):
         "receivedCount": sum(doc.received_request for doc in readable),
         "referenceCount": reference_count,
         "scheduledCount": scheduled_count,
-        "frequentForms": [form_data(form) for form in forms],
+        "frequentForms": [
+            form_data(form, recent_count=form.user_recent_count)
+            for form in forms
+        ],
         "processingDocuments": [document_data(doc) for doc in processing],
         "waitingDocuments": [document_data(doc) for doc in waiting],
     })
