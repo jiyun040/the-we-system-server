@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+readonly APP_DIR="/home/ubuntu/the-we-system-server"
+readonly PYTHON="$APP_DIR/.venv/bin/python"
+
+exec 9>"/tmp/the-we-api-deploy.lock"
+if ! flock -n 9; then
+  echo "Another deployment is already running." >&2
+  exit 1
+fi
+
+cd "$APP_DIR"
+git fetch --prune origin main
+
+current_commit="$(git rev-parse HEAD)"
+target_commit="$(git rev-parse origin/main)"
+if [[ "$current_commit" == "$target_commit" ]]; then
+  echo "Already deployed: $current_commit"
+  exit 0
+fi
+
+if ! git diff --quiet || ! git diff --cached --quiet; then
+  echo "Tracked server files have local changes; deployment stopped." >&2
+  exit 1
+fi
+
+git merge --ff-only "$target_commit"
+"$PYTHON" -m pip install --disable-pip-version-check -r requirements.txt
+"$PYTHON" manage.py migrate --noinput
+"$PYTHON" manage.py collectstatic --noinput
+"$PYTHON" manage.py check
+sudo -n systemctl restart the-we-api
+sudo -n systemctl is-active --quiet the-we-api
+
+curl \
+  --fail \
+  --show-error \
+  --silent \
+  --retry 5 \
+  --retry-delay 2 \
+  http://127.0.0.1:8000/api/v1/health

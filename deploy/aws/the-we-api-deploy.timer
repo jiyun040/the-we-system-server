@@ -1,0 +1,12 @@
+[Unit]
+Description=Check origin/main for The We API deployments
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=1min
+AccuracySec=10s
+Persistent=true
+Unit=the-we-api-deploy.service
+
+[Install]
+WantedBy=timers.target
