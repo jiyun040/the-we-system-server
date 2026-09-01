@@ -2,14 +2,56 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 
 from django.contrib.auth import get_user_model
-from django.db import transaction
+from django.core.exceptions import ValidationError
+from django.db import IntegrityError, transaction
 from django.http import HttpResponse, JsonResponse
 
 from .api import ApiError, endpoint, parse_json, require_fields
-from .models import ApprovalDocument, Department, PortalSetting
+from .models import (
+    ApprovalDocument,
+    ApprovalFormTemplate,
+    Department,
+    PortalSetting,
+)
 from .serializers import settings_data, user_data
 
 User = get_user_model()
+
+USER_REFERENCE_FIELDS = ("receivers", "references", "viewers", "public_receivers")
+
+
+def replace_user_reference(values, old_id, new_id):
+    if not isinstance(values, list):
+        return values
+    return [new_id if value == old_id else value for value in values]
+
+
+def rename_user_references(old_id, new_id):
+    if old_id == new_id:
+        return
+    for model in (ApprovalFormTemplate, ApprovalDocument):
+        for row in model.objects.only("pk", *USER_REFERENCE_FIELDS).iterator():
+            updated_fields = []
+            for field in USER_REFERENCE_FIELDS:
+                current = getattr(row, field)
+                updated = replace_user_reference(current, old_id, new_id)
+                if updated != current:
+                    setattr(row, field, updated)
+                    updated_fields.append(field)
+            if updated_fields:
+                row.save(update_fields=updated_fields)
+
+    setting = PortalSetting.load()
+    current_viewers = setting.document_category_viewer_ids
+    if not isinstance(current_viewers, dict):
+        return
+    updated_viewers = {
+        category: replace_user_reference(user_ids, old_id, new_id)
+        for category, user_ids in current_viewers.items()
+    }
+    if updated_viewers != current_viewers:
+        setting.document_category_viewer_ids = updated_viewers
+        setting.save(update_fields=["document_category_viewer_ids", "updated_at"])
 
 
 def parse_leave_value(data, key, *, minimum=Decimal("0")):
@@ -28,6 +70,7 @@ def parse_leave_value(data, key, *, minimum=Decimal("0")):
             fields={key: "범위를 벗어났습니다."},
         )
     return value
+
 
 @endpoint(["GET", "POST"], dev_fallback=True)
 def departments(request):
@@ -160,6 +203,30 @@ def employee_detail(request, user_id):
         return HttpResponse(status=204)
     data = parse_json(request)
     updated = []
+    old_user_id = user.username
+    new_user_id = old_user_id
+    if "id" in data:
+        new_user_id = str(data["id"] or "").strip()
+        require_fields({"id": new_user_id}, ["id"])
+        try:
+            User._meta.get_field("username").clean(new_user_id, user)
+        except ValidationError as exc:
+            raise ApiError(
+                "아이디 형식을 확인해 주세요.",
+                fields={"id": " ".join(exc.messages)},
+            ) from exc
+        if (
+            User.objects.exclude(pk=user.pk)
+            .filter(username__iexact=new_user_id)
+            .exists()
+        ):
+            raise ApiError(
+                "이미 사용 중인 아이디입니다.",
+                code="username_conflict",
+                fields={"id": "중복된 아이디입니다."},
+            )
+        user.username = new_user_id
+        updated.append("username")
     if "name" in data:
         name = str(data["name"] or "").strip()
         require_fields({"name": name}, ["name"])
@@ -194,7 +261,11 @@ def employee_detail(request, user_id):
     for external, internal in leave_field_map.items():
         if external not in data:
             continue
-        minimum = Decimal("-365") if external == "leaveBalanceAdjustment" else Decimal("0")
+        minimum = (
+            Decimal("-365")
+            if external == "leaveBalanceAdjustment"
+            else Decimal("0")
+        )
         value = parse_leave_value(data, external, minimum=minimum)
         if internal == "leave_balance_adjustment" and value is None:
             value = Decimal("0")
@@ -205,7 +276,16 @@ def employee_detail(request, user_id):
         user.set_password(password)
         updated.append("password")
     if updated:
-        user.save(update_fields=updated)
+        try:
+            with transaction.atomic():
+                user.save(update_fields=updated)
+                rename_user_references(old_user_id, new_user_id)
+        except IntegrityError as exc:
+            raise ApiError(
+                "이미 사용 중인 아이디입니다.",
+                code="username_conflict",
+                fields={"id": "중복된 아이디입니다."},
+            ) from exc
     return JsonResponse({"user": user_data(user)})
 
 

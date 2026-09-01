@@ -426,10 +426,23 @@ class ApiFlowTests(TestCase):
             created_employee.json()["user"]["leaveBalanceAdjustment"],
             -1.5,
         )
+        original_user_pk = User.objects.get(username="new_member").pk
+        setting = PortalSetting.load()
+        setting.document_category_viewer_ids = {
+            "지원": ["new_member", "edu_teacher"],
+        }
+        setting.save(update_fields=["document_category_viewer_ids"])
+        template = ApprovalFormTemplate.objects.first()
+        template.viewers = ["new_member"]
+        template.save(update_fields=["viewers"])
+        document = ApprovalDocument.objects.first()
+        document.references = ["new_member"]
+        document.save(update_fields=["references"])
 
         updated_employee = self.client.patch(
             "/api/v1/organization/employees/new_member",
             data=json.dumps({
+                "id": "renamed_member",
                 "name": "수정직원",
                 "email": "updated@example.com",
                 "annualLeaveDays": 20,
@@ -440,12 +453,37 @@ class ApiFlowTests(TestCase):
             **headers,
         )
         self.assertEqual(updated_employee.status_code, 200, updated_employee.content)
+        self.assertEqual(updated_employee.json()["user"]["id"], "renamed_member")
         self.assertEqual(updated_employee.json()["user"]["name"], "수정직원")
         self.assertEqual(updated_employee.json()["user"]["annualLeaveDays"], 20.0)
         self.assertEqual(updated_employee.json()["user"]["monthlyLeaveDays"], 6.0)
         self.assertEqual(
             updated_employee.json()["user"]["leaveBalanceAdjustment"],
             2.5,
+        )
+        renamed_user = User.objects.get(username="renamed_member")
+        self.assertEqual(renamed_user.pk, original_user_pk)
+        self.assertFalse(User.objects.filter(username="new_member").exists())
+        setting.refresh_from_db()
+        template.refresh_from_db()
+        document.refresh_from_db()
+        self.assertEqual(
+            setting.document_category_viewer_ids["지원"],
+            ["renamed_member", "edu_teacher"],
+        )
+        self.assertEqual(template.viewers, ["renamed_member"])
+        self.assertEqual(document.references, ["renamed_member"])
+
+        duplicate_id = self.client.patch(
+            "/api/v1/organization/employees/renamed_member",
+            data=json.dumps({"id": "edu_teacher"}),
+            content_type="application/json",
+            **headers,
+        )
+        self.assertEqual(duplicate_id.status_code, 400, duplicate_id.content)
+        self.assertEqual(
+            duplicate_id.json()["error"]["code"],
+            "username_conflict",
         )
 
         nonempty_delete = self.client.delete(
@@ -454,10 +492,10 @@ class ApiFlowTests(TestCase):
         self.assertEqual(nonempty_delete.status_code, 409)
 
         deleted_employee = self.client.delete(
-            "/api/v1/organization/employees/new_member", **headers
+            "/api/v1/organization/employees/renamed_member", **headers
         )
         self.assertEqual(deleted_employee.status_code, 204)
-        self.assertFalse(User.objects.get(username="new_member").is_active)
+        self.assertFalse(User.objects.get(username="renamed_member").is_active)
 
         deleted_department = self.client.delete(
             f"/api/v1/organization/departments/{department_id}", **headers
