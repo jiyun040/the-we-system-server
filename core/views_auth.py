@@ -1,13 +1,18 @@
+import re
+
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model
+from django.contrib.auth.hashers import make_password
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 from django.http import HttpResponse, JsonResponse
 
 from .admin_access import (
+    can_change_admin_otp,
     ensure_designated_admin_access,
     matches_designated_admin_profile,
+    verify_admin_otp_for_user,
 )
 from .api import ApiError, bearer_token, endpoint, parse_json, require_fields
 from .models import ApiToken, Department, PortalSetting
@@ -130,5 +135,48 @@ def verify_admin_otp(request):
     data = parse_json(request)
     otp = str(data.get("otp") or "").strip()
     setting = PortalSetting.load()
-    valid = not setting.admin_otp_enabled or otp == "123456"
+    valid = not setting.admin_otp_enabled or verify_admin_otp_for_user(
+        request.api_user,
+        otp,
+    )
     return JsonResponse({"valid": valid})
+
+
+@endpoint(["POST"], admin=True)
+def change_admin_otp(request):
+    if not can_change_admin_otp(request.api_user):
+        raise ApiError(
+            "슈퍼어드민 OTP는 123456으로 고정됩니다.",
+            status=403,
+            code="admin_otp_change_not_allowed",
+        )
+
+    data = parse_json(request)
+    current_otp = str(data.get("currentOtp") or "").strip()
+    new_otp = str(data.get("newOtp") or "").strip()
+    require_fields(
+        {"currentOtp": current_otp, "newOtp": new_otp},
+        ["currentOtp", "newOtp"],
+    )
+    if not re.fullmatch(r"\d{6}", current_otp) or not re.fullmatch(
+        r"\d{6}",
+        new_otp,
+    ):
+        raise ApiError(
+            "OTP는 숫자 6자리로 입력해 주세요.",
+            code="invalid_otp_format",
+        )
+    if not verify_admin_otp_for_user(request.api_user, current_otp):
+        raise ApiError(
+            "현재 OTP 번호가 올바르지 않습니다.",
+            code="invalid_current_otp",
+        )
+    if current_otp == new_otp:
+        raise ApiError(
+            "현재 OTP와 다른 번호를 입력해 주세요.",
+            code="otp_unchanged",
+        )
+
+    request.api_user.admin_otp_hash = make_password(new_otp)
+    request.api_user.save(update_fields=["admin_otp_hash"])
+    return JsonResponse({"changed": True})

@@ -49,6 +49,7 @@ class User(AbstractUser):
     )
     position = models.CharField(max_length=50, blank=True)
     hire_date = models.DateField(default=date.today)
+    admin_otp_hash = models.CharField(max_length=128, blank=True)
 
     @property
     def display_name(self):

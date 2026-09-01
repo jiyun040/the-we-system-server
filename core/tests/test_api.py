@@ -120,20 +120,100 @@ class ApiFlowTests(TestCase):
 
         self.assertEqual(response.status_code, 201, response.content)
         self.assertTrue(response.json()["user"]["isAdmin"])
+        self.assertTrue(response.json()["user"]["canChangeAdminOtp"])
         user = User.objects.get(username=DESIGNATED_ADMIN_USERNAME)
         self.assertTrue(user.is_staff)
         self.assertFalse(user.is_superuser)
 
+        token = self.login(DESIGNATED_ADMIN_USERNAME, "safe-password-1234")
         otp = self.client.post(
             "/api/v1/admin/verify-otp",
             data=json.dumps({"otp": "123456"}),
             content_type="application/json",
-            **self.headers(
-                self.login(DESIGNATED_ADMIN_USERNAME, "safe-password-1234")
-            ),
+            **self.headers(token),
         )
         self.assertEqual(otp.status_code, 200, otp.content)
         self.assertTrue(otp.json()["valid"])
+
+        wrong_current = self.client.post(
+            "/api/v1/admin/change-otp",
+            data=json.dumps({"currentOtp": "000000", "newOtp": "654321"}),
+            content_type="application/json",
+            **self.headers(token),
+        )
+        self.assertEqual(wrong_current.status_code, 400, wrong_current.content)
+        self.assertEqual(
+            wrong_current.json()["error"]["code"],
+            "invalid_current_otp",
+        )
+
+        changed = self.client.post(
+            "/api/v1/admin/change-otp",
+            data=json.dumps({"currentOtp": "123456", "newOtp": "654321"}),
+            content_type="application/json",
+            **self.headers(token),
+        )
+        self.assertEqual(changed.status_code, 200, changed.content)
+        self.assertTrue(changed.json()["changed"])
+        user.refresh_from_db()
+        self.assertTrue(user.admin_otp_hash)
+        self.assertNotEqual(user.admin_otp_hash, "654321")
+
+        old_otp = self.client.post(
+            "/api/v1/admin/verify-otp",
+            data=json.dumps({"otp": "123456"}),
+            content_type="application/json",
+            **self.headers(token),
+        )
+        new_otp = self.client.post(
+            "/api/v1/admin/verify-otp",
+            data=json.dumps({"otp": "654321"}),
+            content_type="application/json",
+            **self.headers(token),
+        )
+        self.assertFalse(old_otp.json()["valid"])
+        self.assertTrue(new_otp.json()["valid"])
+
+    def test_super_admin_otp_remains_fixed(self):
+        department, _ = Department.objects.get_or_create(name="시스템관리")
+        User.objects.create_superuser(
+            username="admin",
+            password="admin-password",
+            first_name="시스템 관리자",
+            department=department,
+            position="관리자",
+        )
+        token = self.login("admin", "admin-password")
+
+        me = self.client.get("/api/v1/auth/me", **self.headers(token))
+        self.assertFalse(me.json()["user"]["canChangeAdminOtp"])
+
+        fixed_otp = self.client.post(
+            "/api/v1/admin/verify-otp",
+            data=json.dumps({"otp": "123456"}),
+            content_type="application/json",
+            **self.headers(token),
+        )
+        other_otp = self.client.post(
+            "/api/v1/admin/verify-otp",
+            data=json.dumps({"otp": "654321"}),
+            content_type="application/json",
+            **self.headers(token),
+        )
+        self.assertTrue(fixed_otp.json()["valid"])
+        self.assertFalse(other_otp.json()["valid"])
+
+        change = self.client.post(
+            "/api/v1/admin/change-otp",
+            data=json.dumps({"currentOtp": "123456", "newOtp": "654321"}),
+            content_type="application/json",
+            **self.headers(token),
+        )
+        self.assertEqual(change.status_code, 403, change.content)
+        self.assertEqual(
+            change.json()["error"]["code"],
+            "admin_otp_change_not_allowed",
+        )
 
     def test_designated_admin_migration_updates_matching_account_only(self):
         department, _ = Department.objects.get_or_create(

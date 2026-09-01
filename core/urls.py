@@ -11,6 +11,7 @@ urlpatterns = [
     path("auth/me", views_auth.me, name="me"),
     path("auth/verify-password", views_auth.verify_password, name="verify-password"),
     path("admin/verify-otp", views_auth.verify_admin_otp, name="verify-admin-otp"),
+    path("admin/change-otp", views_auth.change_admin_otp, name="change-admin-otp"),
     path("organization/departments", views_org.departments, name="departments"),
     path("organization/departments/reorder", views_org.reorder_departments, name="department-reorder"),
     path("organization/employees", views_org.employees, name="employees"),

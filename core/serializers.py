@@ -1,5 +1,7 @@
 from django.utils import timezone
 
+from .admin_access import can_change_admin_otp
+
 
 def iso_date(value):
     return value.isoformat() if value else ""
@@ -14,6 +16,7 @@ def user_data(user):
         "email": user.email,
         "hireDate": iso_date(user.hire_date),
         "isAdmin": user.is_staff,
+        "canChangeAdminOtp": can_change_admin_otp(user),
     }
 
 
