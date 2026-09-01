@@ -5,6 +5,12 @@ from django.apps import apps
 from django.core.management import call_command
 from django.test import TestCase, override_settings
 
+from core.admin_access import (
+    DESIGNATED_ADMIN_DEPARTMENT,
+    DESIGNATED_ADMIN_NAME,
+    DESIGNATED_ADMIN_POSITION,
+    DESIGNATED_ADMIN_USERNAME,
+)
 from core.models import (
     ApprovalDocument,
     ApprovalFormTemplate,
@@ -99,22 +105,22 @@ class ApiFlowTests(TestCase):
         self.assertEqual(user.department.name, "공무")
         self.assertTrue(user.check_password("safe-password-1234"))
 
-    def test_kim_hyomin_account_receives_server_admin_permission(self):
+    def test_designated_account_receives_server_admin_permission(self):
         response = self.client.post(
             "/api/v1/auth/register",
             data=json.dumps({
-                "id": "we061046",
+                "id": DESIGNATED_ADMIN_USERNAME,
                 "password": "safe-password-1234",
-                "name": "김효민",
-                "department": "경리부",
-                "position": "대리",
+                "name": DESIGNATED_ADMIN_NAME,
+                "department": DESIGNATED_ADMIN_DEPARTMENT,
+                "position": DESIGNATED_ADMIN_POSITION,
             }),
             content_type="application/json",
         )
 
         self.assertEqual(response.status_code, 201, response.content)
         self.assertTrue(response.json()["user"]["isAdmin"])
-        user = User.objects.get(username="we061046")
+        user = User.objects.get(username=DESIGNATED_ADMIN_USERNAME)
         self.assertTrue(user.is_staff)
         self.assertFalse(user.is_superuser)
 
@@ -122,40 +128,84 @@ class ApiFlowTests(TestCase):
             "/api/v1/admin/verify-otp",
             data=json.dumps({"otp": "123456"}),
             content_type="application/json",
-            **self.headers(self.login("we061046", "safe-password-1234")),
+            **self.headers(
+                self.login(DESIGNATED_ADMIN_USERNAME, "safe-password-1234")
+            ),
         )
         self.assertEqual(otp.status_code, 200, otp.content)
         self.assertTrue(otp.json()["valid"])
 
-    def test_kim_hyomin_admin_migration_updates_existing_account_only(self):
-        department, _ = Department.objects.get_or_create(name="경리부")
+    def test_designated_admin_migration_updates_matching_account_only(self):
+        department, _ = Department.objects.get_or_create(
+            name=DESIGNATED_ADMIN_DEPARTMENT
+        )
         target = User.objects.create_user(
-            username="we061046",
+            username=DESIGNATED_ADMIN_USERNAME,
             password="safe-password-1234",
-            first_name="김효민",
+            first_name=DESIGNATED_ADMIN_NAME,
             department=department,
-            position="대리",
+            position=DESIGNATED_ADMIN_POSITION,
             is_staff=False,
         )
         other = User.objects.create_user(
-            username="not-kim-hyomin",
+            username="non-designated-account",
             password="safe-password-1234",
-            first_name="김효민",
+            first_name=DESIGNATED_ADMIN_NAME,
             department=department,
-            position="대리",
+            position=DESIGNATED_ADMIN_POSITION,
             is_staff=False,
         )
         migration = import_module(
-            "core.migrations.0004_grant_kim_hyomin_admin_access"
+            "core.migrations.0006_grant_designated_admin_access"
         )
 
-        migration.grant_kim_hyomin_admin_access(apps, None)
+        migration.grant_designated_admin_access(apps, None)
 
         target.refresh_from_db()
         other.refresh_from_db()
         self.assertTrue(target.is_staff)
         self.assertFalse(target.is_superuser)
         self.assertFalse(other.is_staff)
+
+    def test_designated_admin_permission_is_restored_on_login(self):
+        department, _ = Department.objects.get_or_create(
+            name=DESIGNATED_ADMIN_DEPARTMENT
+        )
+        user = User.objects.create_user(
+            username=DESIGNATED_ADMIN_USERNAME,
+            password="safe-password-1234",
+            first_name=DESIGNATED_ADMIN_NAME,
+            department=department,
+            position=DESIGNATED_ADMIN_POSITION,
+            is_staff=False,
+        )
+
+        response = self.client.post(
+            "/api/v1/auth/login",
+            data=json.dumps({
+                "id": DESIGNATED_ADMIN_USERNAME,
+                "password": "safe-password-1234",
+            }),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertTrue(response.json()["user"]["isAdmin"])
+        user.refresh_from_db()
+        self.assertTrue(user.is_staff)
+
+        bootstrap = self.client.get(
+            "/api/v1/bootstrap",
+            **self.headers(response.json()["token"]),
+        )
+        self.assertEqual(bootstrap.status_code, 200, bootstrap.content)
+        self.assertTrue(bootstrap.json()["currentUser"]["isAdmin"])
+        account = next(
+            item
+            for item in bootstrap.json()["accounts"]
+            if item["id"] == DESIGNATED_ADMIN_USERNAME
+        )
+        self.assertTrue(account["isAdmin"])
 
     def test_bootstrap_restores_remote_application_state(self):
         token = self.login()

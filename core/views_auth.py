@@ -5,6 +5,10 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 from django.http import HttpResponse, JsonResponse
 
+from .admin_access import (
+    ensure_designated_admin_access,
+    matches_designated_admin_profile,
+)
 from .api import ApiError, bearer_token, endpoint, parse_json, require_fields
 from .models import ApiToken, Department, PortalSetting
 from .serializers import user_data
@@ -21,9 +25,6 @@ SIGNUP_EMPLOYEE_PROFILES = {
     "조용덕": ("연구소", "부장"),
 }
 
-KIM_HYOMIN_ADMIN_USERNAME = "we061046"
-
-
 @endpoint(["POST"], auth=False)
 def login(request):
     data = parse_json(request)
@@ -37,6 +38,7 @@ def login(request):
             status=401,
             code="invalid_credentials",
         )
+    ensure_designated_admin_access(user)
     token = ApiToken.issue(user, settings.TOKEN_TTL_HOURS)
     return JsonResponse({"token": token, "tokenType": "Bearer", "user": user_data(user)})
 
@@ -89,10 +91,11 @@ def register(request):
             first_name=normalized["name"],
             department=department,
             position=normalized["position"],
-            is_staff=(
-                normalized["id"].lower() == KIM_HYOMIN_ADMIN_USERNAME
-                and normalized["name"] == "김효민"
-                and expected_profile == ("경리부", "대리")
+            is_staff=matches_designated_admin_profile(
+                normalized["id"],
+                normalized["name"],
+                normalized["department"],
+                normalized["position"],
             ),
         )
     except IntegrityError as exc:

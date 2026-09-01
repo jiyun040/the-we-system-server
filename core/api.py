@@ -6,6 +6,7 @@ from django.contrib.auth import get_user_model
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
+from .admin_access import ensure_designated_admin_access
 from .models import ApiToken
 
 User = get_user_model()
@@ -40,14 +41,15 @@ def bearer_token(request):
 
 def resolve_user(request, allow_dev_fallback=False):
     if getattr(request, "user", None) and request.user.is_authenticated:
-        return request.user
+        return ensure_designated_admin_access(request.user)
     token = ApiToken.resolve(bearer_token(request))
     if token:
-        return token.user
+        return ensure_designated_admin_access(token.user)
     if allow_dev_fallback and settings.DEV_ALLOW_ANONYMOUS:
-        return User.objects.select_related("department").filter(
+        user = User.objects.select_related("department").filter(
             username=settings.DEV_DEFAULT_USERNAME, is_active=True
         ).first()
+        return ensure_designated_admin_access(user)
     return None
 
 
