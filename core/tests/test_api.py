@@ -314,6 +314,53 @@ class ApiFlowTests(TestCase):
         self.assertEqual(deleted_department.status_code, 204)
         self.assertFalse(Department.objects.filter(pk=department_id).exists())
 
+    def test_department_order_is_saved_and_returned_by_bootstrap(self):
+        token = self.login()
+        headers = self.headers(token)
+        denied = self.client.patch(
+            "/api/v1/organization/departments/reorder",
+            data=json.dumps({"departments": []}),
+            content_type="application/json",
+            **self.headers(self.login("edu_teacher")),
+        )
+        self.assertEqual(denied.status_code, 403)
+        current = self.client.get(
+            "/api/v1/organization/departments",
+            **headers,
+        ).json()["departments"]
+        reordered = [item["name"] for item in reversed(current)]
+
+        response = self.client.patch(
+            "/api/v1/organization/departments/reorder",
+            data=json.dumps({"departments": reordered}),
+            content_type="application/json",
+            **headers,
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["departments"], reordered)
+        bootstrap = self.client.get(
+            "/api/v1/bootstrap",
+            **headers,
+        ).json()
+        self.assertEqual(bootstrap["departments"], reordered)
+
+    def test_department_order_migration_uses_requested_default_order(self):
+        requested = ["대표이사", "기술부", "연구소", "관리부", "공무", "경리부"]
+        for name in reversed(requested):
+            Department.objects.get_or_create(name=name)
+        migration = import_module("core.migrations.0005_department_sort_order")
+
+        migration.initialize_department_sort_order(apps, None)
+
+        ordered = list(
+            Department.objects.order_by("sort_order", "name").values_list(
+                "name",
+                flat=True,
+            )
+        )
+        self.assertEqual(ordered[:6], requested)
+
     def test_super_admin_is_hidden_from_employee_and_organization_data(self):
         department = Department.objects.create(name="시스템관리")
         User.objects.create_superuser(

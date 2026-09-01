@@ -80,7 +80,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         accounts = {}
         for username, name, department_name, position, email, is_admin in USERS:
-            department, _ = Department.objects.get_or_create(name=department_name)
+            department, _ = Department.get_or_create_at_end(department_name)
             user, created = User.objects.get_or_create(
                 username=username,
                 defaults={

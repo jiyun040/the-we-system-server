@@ -1,6 +1,7 @@
 from datetime import date
 
 from django.contrib.auth import get_user_model
+from django.db import transaction
 from django.http import HttpResponse, JsonResponse
 
 from .api import ApiError, endpoint, parse_json, require_fields
@@ -8,16 +9,6 @@ from .models import ApprovalDocument, Department, PortalSetting
 from .serializers import settings_data, user_data
 
 User = get_user_model()
-
-DEPARTMENT_ORDER = ["대표이사", "기술부", "연구소", "관리부", "공무", "경리부"]
-
-
-def department_sort_key(department):
-    try:
-        return (0, DEPARTMENT_ORDER.index(department.name))
-    except ValueError:
-        return (1, department.name)
-
 
 @endpoint(["GET", "POST"], dev_fallback=True)
 def departments(request):
@@ -27,15 +18,21 @@ def departments(request):
         data = parse_json(request)
         name = str(data.get("name") or "").strip()
         require_fields({"name": name}, ["name"])
-        department, created = Department.objects.get_or_create(name=name)
+        department, created = Department.get_or_create_at_end(name)
         return JsonResponse(
-            {"id": department.pk, "name": department.name, "description": department.description},
+            {
+                "id": department.pk,
+                "name": department.name,
+                "description": department.description,
+                "sortOrder": department.sort_order,
+            },
             status=201 if created else 200,
         )
     rows = []
-    queryset = sorted(
-        Department.objects.prefetch_related("members").exclude(name="시스템관리"),
-        key=department_sort_key,
+    queryset = (
+        Department.objects.prefetch_related("members")
+        .exclude(name="시스템관리")
+        .order_by("sort_order", "name")
     )
     for department in queryset:
         rows.append(
@@ -43,6 +40,7 @@ def departments(request):
                 "id": department.pk,
                 "name": department.name,
                 "description": department.description,
+                "sortOrder": department.sort_order,
                 "members": [
                     user_data(user)
                     for user in department.members.filter(is_active=True).exclude(username="admin")
@@ -50,6 +48,33 @@ def departments(request):
             }
         )
     return JsonResponse({"departments": rows})
+
+
+@endpoint(["PATCH"], admin=True)
+def reorder_departments(request):
+    data = parse_json(request)
+    names = data.get("departments")
+    if not isinstance(names, list):
+        raise ApiError(
+            "부서 순서는 배열이어야 합니다.",
+            fields={"departments": "잘못된 형식입니다."},
+        )
+    normalized = [str(name).strip() for name in names]
+    departments = list(Department.objects.exclude(name="시스템관리"))
+    by_name = {department.name: department for department in departments}
+    if (
+        len(normalized) != len(set(normalized))
+        or set(normalized) != set(by_name)
+    ):
+        raise ApiError(
+            "현재 부서를 모두 포함해 순서를 지정해 주세요.",
+            fields={"departments": "부서 목록이 일치하지 않습니다."},
+        )
+    with transaction.atomic():
+        for index, name in enumerate(normalized):
+            by_name[name].sort_order = index
+        Department.objects.bulk_update(departments, ["sort_order"])
+    return JsonResponse({"departments": normalized})
 
 
 @endpoint(["GET", "POST"], dev_fallback=True)
@@ -70,7 +95,7 @@ def employees(request):
             raise ApiError("이미 사용 중인 아이디입니다.", fields={"id": "중복된 아이디입니다."})
         if User.objects.filter(email__iexact=fields["email"]).exists():
             raise ApiError("이미 사용 중인 이메일입니다.", fields={"email": "중복된 이메일입니다."})
-        department, _ = Department.objects.get_or_create(name=fields["department"])
+        department, _ = Department.get_or_create_at_end(fields["department"])
         user = User.objects.create_user(
             username=fields["id"], password=fields["password"], first_name=fields["name"],
             email=fields["email"], department=department, position=fields["position"],
@@ -121,7 +146,7 @@ def employee_detail(request, user_id):
     if "department" in data:
         department_name = str(data["department"] or "").strip()
         require_fields({"department": department_name}, ["department"])
-        user.department, _ = Department.objects.get_or_create(name=department_name)
+        user.department, _ = Department.get_or_create_at_end(department_name)
         updated.append("department")
     if "position" in data:
         user.position = str(data["position"] or "").strip()

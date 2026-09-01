@@ -22,10 +22,22 @@ def default_wide_document_categories():
 class Department(models.Model):
     name = models.CharField(max_length=100, unique=True)
     description = models.CharField(max_length=255, blank=True)
+    sort_order = models.PositiveIntegerField(default=0, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        ordering = ["name"]
+        ordering = ["sort_order", "name"]
+
+    @classmethod
+    def get_or_create_at_end(cls, name):
+        existing = cls.objects.filter(name=name).first()
+        if existing is not None:
+            return existing, False
+        current_max = cls.objects.aggregate(value=models.Max("sort_order"))["value"]
+        return cls.objects.get_or_create(
+            name=name,
+            defaults={"sort_order": (current_max if current_max is not None else -1) + 1},
+        )
 
     def __str__(self):
         return self.name

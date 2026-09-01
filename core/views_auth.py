@@ -81,7 +81,7 @@ def register(request):
             fields={"password": " ".join(exc.messages)},
         ) from exc
 
-    department, _ = Department.objects.get_or_create(name=normalized["department"])
+    department, _ = Department.get_or_create_at_end(normalized["department"])
     try:
         user = User.objects.create_user(
             username=normalized["id"],

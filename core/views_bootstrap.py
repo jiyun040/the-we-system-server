@@ -5,16 +5,6 @@ from .models import ApprovalFormTemplate, Department, LeaveRequest, PortalSettin
 from .serializers import document_data, form_data, leave_data, settings_data, user_data
 from .views_approvals import can_read, document_queryset, frequent_forms_for_user
 
-DEPARTMENT_ORDER = ["대표이사", "기술부", "연구소", "관리부", "공무", "경리부"]
-
-
-def department_sort_key(name):
-    try:
-        return (0, DEPARTMENT_ORDER.index(name))
-    except ValueError:
-        return (1, name)
-
-
 @endpoint(["GET"])
 def bootstrap(request):
     user = request.api_user
@@ -33,9 +23,10 @@ def bootstrap(request):
     if not user.is_staff and user.username != "ceo":
         leaves = leaves.filter(user=user)
     setting = PortalSetting.load()
-    departments = sorted(
-        Department.objects.exclude(name="시스템관리").values_list("name", flat=True),
-        key=department_sort_key,
+    departments = list(
+        Department.objects.exclude(name="시스템관리")
+        .order_by("sort_order", "name")
+        .values_list("name", flat=True)
     )
     return JsonResponse(
         {
