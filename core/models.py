@@ -50,6 +50,23 @@ class User(AbstractUser):
     position = models.CharField(max_length=50, blank=True)
     hire_date = models.DateField(default=date.today)
     admin_otp_hash = models.CharField(max_length=128, blank=True)
+    annual_leave_days = models.DecimalField(
+        max_digits=5,
+        decimal_places=1,
+        null=True,
+        blank=True,
+    )
+    monthly_leave_days = models.DecimalField(
+        max_digits=5,
+        decimal_places=1,
+        null=True,
+        blank=True,
+    )
+    leave_balance_adjustment = models.DecimalField(
+        max_digits=6,
+        decimal_places=1,
+        default=0,
+    )
 
     @property
     def display_name(self):

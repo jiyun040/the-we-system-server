@@ -1,4 +1,5 @@
 from datetime import date
+from decimal import Decimal, InvalidOperation
 
 from django.contrib.auth import get_user_model
 from django.db import transaction
@@ -9,6 +10,24 @@ from .models import ApprovalDocument, Department, PortalSetting
 from .serializers import settings_data, user_data
 
 User = get_user_model()
+
+
+def parse_leave_value(data, key, *, minimum=Decimal("0")):
+    if key not in data or data[key] in (None, ""):
+        return None
+    try:
+        value = Decimal(str(data[key]))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise ApiError(
+            "휴가 일수는 숫자로 입력해 주세요.",
+            fields={key: "숫자여야 합니다."},
+        ) from exc
+    if not value.is_finite() or value < minimum or value > Decimal("365"):
+        raise ApiError(
+            "휴가 일수는 허용 범위 안에서 입력해 주세요.",
+            fields={key: "범위를 벗어났습니다."},
+        )
+    return value
 
 @endpoint(["GET", "POST"], dev_fallback=True)
 def departments(request):
@@ -100,6 +119,16 @@ def employees(request):
             username=fields["id"], password=fields["password"], first_name=fields["name"],
             email=fields["email"], department=department, position=fields["position"],
             hire_date=hire_date,
+            annual_leave_days=parse_leave_value(data, "annualLeaveDays"),
+            monthly_leave_days=parse_leave_value(data, "monthlyLeaveDays"),
+            leave_balance_adjustment=(
+                parse_leave_value(
+                    data,
+                    "leaveBalanceAdjustment",
+                    minimum=Decimal("-365"),
+                )
+                or Decimal("0")
+            ),
         )
         return JsonResponse({"user": user_data(user)}, status=201)
     users = (
@@ -157,6 +186,20 @@ def employee_detail(request, user_id):
         except ValueError as exc:
             raise ApiError("입사일은 YYYY-MM-DD 형식이어야 합니다.") from exc
         updated.append("hire_date")
+    leave_field_map = {
+        "annualLeaveDays": "annual_leave_days",
+        "monthlyLeaveDays": "monthly_leave_days",
+        "leaveBalanceAdjustment": "leave_balance_adjustment",
+    }
+    for external, internal in leave_field_map.items():
+        if external not in data:
+            continue
+        minimum = Decimal("-365") if external == "leaveBalanceAdjustment" else Decimal("0")
+        value = parse_leave_value(data, external, minimum=minimum)
+        if internal == "leave_balance_adjustment" and value is None:
+            value = Decimal("0")
+        setattr(user, internal, value)
+        updated.append(internal)
     password = str(data.get("password") or "").strip()
     if password:
         user.set_password(password)

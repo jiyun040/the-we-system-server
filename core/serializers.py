@@ -17,6 +17,17 @@ def user_data(user):
         "hireDate": iso_date(user.hire_date),
         "isAdmin": user.is_staff,
         "canChangeAdminOtp": can_change_admin_otp(user),
+        "annualLeaveDays": (
+            float(user.annual_leave_days)
+            if user.annual_leave_days is not None
+            else None
+        ),
+        "monthlyLeaveDays": (
+            float(user.monthly_leave_days)
+            if user.monthly_leave_days is not None
+            else None
+        ),
+        "leaveBalanceAdjustment": float(user.leave_balance_adjustment),
     }
 
 

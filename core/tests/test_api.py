@@ -412,20 +412,41 @@ class ApiFlowTests(TestCase):
                 "position": "사원",
                 "email": "new-member@example.com",
                 "hireDate": "2026-08-31",
+                "annualLeaveDays": 18,
+                "monthlyLeaveDays": 4.5,
+                "leaveBalanceAdjustment": -1.5,
             }),
             content_type="application/json",
             **headers,
         )
         self.assertEqual(created_employee.status_code, 201, created_employee.content)
+        self.assertEqual(created_employee.json()["user"]["annualLeaveDays"], 18.0)
+        self.assertEqual(created_employee.json()["user"]["monthlyLeaveDays"], 4.5)
+        self.assertEqual(
+            created_employee.json()["user"]["leaveBalanceAdjustment"],
+            -1.5,
+        )
 
         updated_employee = self.client.patch(
             "/api/v1/organization/employees/new_member",
-            data=json.dumps({"name": "수정직원", "email": "updated@example.com"}),
+            data=json.dumps({
+                "name": "수정직원",
+                "email": "updated@example.com",
+                "annualLeaveDays": 20,
+                "monthlyLeaveDays": 6,
+                "leaveBalanceAdjustment": 2.5,
+            }),
             content_type="application/json",
             **headers,
         )
         self.assertEqual(updated_employee.status_code, 200, updated_employee.content)
         self.assertEqual(updated_employee.json()["user"]["name"], "수정직원")
+        self.assertEqual(updated_employee.json()["user"]["annualLeaveDays"], 20.0)
+        self.assertEqual(updated_employee.json()["user"]["monthlyLeaveDays"], 6.0)
+        self.assertEqual(
+            updated_employee.json()["user"]["leaveBalanceAdjustment"],
+            2.5,
+        )
 
         nonempty_delete = self.client.delete(
             f"/api/v1/organization/departments/{department_id}", **headers
