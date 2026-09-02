@@ -1,8 +1,22 @@
 from django.http import JsonResponse
 
 from .api import endpoint
-from .models import ApprovalFormTemplate, Department, LeaveRequest, PortalSetting, User
-from .serializers import document_data, form_data, leave_data, settings_data, user_data
+from .models import (
+    ApprovalFormTemplate,
+    Department,
+    LeaveRequest,
+    Notice,
+    PortalSetting,
+    User,
+)
+from .serializers import (
+    document_data,
+    form_data,
+    leave_data,
+    notice_data,
+    settings_data,
+    user_data,
+)
 from .views_approvals import can_read, document_queryset, frequent_forms_for_user
 
 @endpoint(["GET"])
@@ -44,6 +58,10 @@ def bootstrap(request):
                 document.public_id for document in documents if not document.department_visible
             ],
             "leaveRequests": [leave_data(leave) for leave in leaves],
+            "notices": [
+                notice_data(notice)
+                for notice in Notice.objects.select_related("author").all()
+            ],
             "acknowledgedLeaveRequestIds": [
                 leave.public_id for leave in leaves if leave.acknowledged
             ],

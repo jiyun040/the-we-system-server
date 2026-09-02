@@ -15,7 +15,7 @@ from .admin_access import (
     verify_admin_otp_for_user,
 )
 from .api import ApiError, bearer_token, endpoint, parse_json, require_fields
-from .models import ApiToken, Department, PortalSetting
+from .models import ApiToken, Department
 from .serializers import user_data
 
 User = get_user_model()
@@ -134,11 +134,7 @@ def verify_password(request):
 def verify_admin_otp(request):
     data = parse_json(request)
     otp = str(data.get("otp") or "").strip()
-    setting = PortalSetting.load()
-    valid = not setting.admin_otp_enabled or verify_admin_otp_for_user(
-        request.api_user,
-        otp,
-    )
+    valid = verify_admin_otp_for_user(request.api_user, otp)
     return JsonResponse({"valid": valid})
 
 

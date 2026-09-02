@@ -13,7 +13,6 @@ def user_data(user):
         "name": user.display_name,
         "department": user.department.name if user.department else "",
         "position": user.position,
-        "email": user.email,
         "hireDate": iso_date(user.hire_date),
         "isAdmin": user.is_staff,
         "canChangeAdminOtp": can_change_admin_otp(user),
@@ -139,6 +138,18 @@ def leave_data(request):
         "directEntry": request.direct_entry,
         "registeredBy": request.registered_by.display_name if request.registered_by else "",
         "acknowledged": request.acknowledged,
+    }
+
+
+def notice_data(notice):
+    return {
+        "id": str(notice.pk),
+        "title": notice.title,
+        "content": notice.content,
+        "authorName": notice.author.display_name,
+        "isPinned": notice.is_pinned,
+        "createdAt": notice.created_at.isoformat(),
+        "updatedAt": notice.updated_at.isoformat(),
     }
 
 

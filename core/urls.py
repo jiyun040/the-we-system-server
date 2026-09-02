@@ -1,6 +1,15 @@
 from django.urls import path
 
-from . import views, views_approvals, views_auth, views_bootstrap, views_forms, views_leave, views_org
+from . import (
+    views,
+    views_approvals,
+    views_auth,
+    views_bootstrap,
+    views_forms,
+    views_leave,
+    views_notices,
+    views_org,
+)
 
 urlpatterns = [
     path("health", views.health, name="health"),
@@ -12,6 +21,8 @@ urlpatterns = [
     path("auth/verify-password", views_auth.verify_password, name="verify-password"),
     path("admin/verify-otp", views_auth.verify_admin_otp, name="verify-admin-otp"),
     path("admin/change-otp", views_auth.change_admin_otp, name="change-admin-otp"),
+    path("notices", views_notices.notices, name="notices"),
+    path("notices/<int:notice_id>", views_notices.notice_detail, name="notice-detail"),
     path("organization/departments", views_org.departments, name="departments"),
     path("organization/departments/reorder", views_org.reorder_departments, name="department-reorder"),
     path("organization/employees", views_org.employees, name="employees"),

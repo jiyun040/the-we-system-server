@@ -2,7 +2,8 @@ import hashlib
 import secrets
 from datetime import date, timedelta
 
-from django.contrib.auth.models import AbstractUser
+from django.contrib.auth.hashers import make_password
+from django.contrib.auth.models import AbstractUser, UserManager
 from django.db import models
 from django.utils import timezone
 
@@ -17,6 +18,18 @@ def default_enabled_apps():
 
 def default_wide_document_categories():
     return ["지원", "회계", "근태", "협조"]
+
+
+class EmailFreeUserManager(UserManager):
+    use_in_migrations = False
+
+    def _create_user_object(self, username, email, password, **extra_fields):
+        if not username:
+            raise ValueError("아이디는 필수입니다.")
+        username = self.model.normalize_username(username)
+        user = self.model(username=username, **extra_fields)
+        user.password = make_password(password)
+        return user
 
 
 class Department(models.Model):
@@ -44,6 +57,8 @@ class Department(models.Model):
 
 
 class User(AbstractUser):
+    email = None
+    objects = EmailFreeUserManager()
     department = models.ForeignKey(
         Department, null=True, blank=True, on_delete=models.PROTECT, related_name="members"
     )
@@ -246,6 +261,22 @@ class LeaveRequest(models.Model):
 
     class Meta:
         ordering = ["-start_date", "-created_at"]
+
+
+class Notice(models.Model):
+    title = models.CharField(max_length=200)
+    content = models.TextField()
+    author = models.ForeignKey(
+        User,
+        on_delete=models.PROTECT,
+        related_name="notices",
+    )
+    is_pinned = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-is_pinned", "-created_at", "-id"]
 
 
 class PortalSetting(models.Model):

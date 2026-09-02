@@ -16,6 +16,7 @@ from core.models import (
     ApprovalFormTemplate,
     Department,
     LeaveRequest,
+    Notice,
     PortalSetting,
     User,
 )
@@ -60,6 +61,7 @@ class ApiFlowTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["user"]["id"], "edu_manager")
         self.assertNotIn("password", response.json()["user"])
+        self.assertNotIn("email", response.json()["user"])
 
     def test_direct_registration_rejects_unregistered_employee(self):
         user_count = User.objects.count()
@@ -70,7 +72,6 @@ class ApiFlowTests(TestCase):
             "name": "직접가입",
             "department": "외부생성부서",
             "position": "사원",
-            "email": "direct-signup@example.com",
         }
 
         response = self.client.post(
@@ -126,12 +127,22 @@ class ApiFlowTests(TestCase):
         self.assertFalse(user.is_superuser)
 
         token = self.login(DESIGNATED_ADMIN_USERNAME, "safe-password-1234")
+        setting = PortalSetting.load()
+        setting.admin_otp_enabled = False
+        setting.save(update_fields=["admin_otp_enabled"])
+        invalid_otp = self.client.post(
+            "/api/v1/admin/verify-otp",
+            data=json.dumps({"otp": "000000"}),
+            content_type="application/json",
+            **self.headers(token),
+        )
         otp = self.client.post(
             "/api/v1/admin/verify-otp",
             data=json.dumps({"otp": "123456"}),
             content_type="application/json",
             **self.headers(token),
         )
+        self.assertFalse(invalid_otp.json()["valid"])
         self.assertEqual(otp.status_code, 200, otp.content)
         self.assertTrue(otp.json()["valid"])
 
@@ -214,6 +225,77 @@ class ApiFlowTests(TestCase):
             change.json()["error"]["code"],
             "admin_otp_change_not_allowed",
         )
+
+    def test_only_designated_otp_admin_can_manage_notices(self):
+        department, _ = Department.objects.get_or_create(
+            name=DESIGNATED_ADMIN_DEPARTMENT
+        )
+        User.objects.create_user(
+            username=DESIGNATED_ADMIN_USERNAME,
+            password="safe-password-1234",
+            first_name=DESIGNATED_ADMIN_NAME,
+            department=department,
+            position=DESIGNATED_ADMIN_POSITION,
+            is_staff=True,
+        )
+        token = self.login(DESIGNATED_ADMIN_USERNAME, "safe-password-1234")
+
+        created = self.client.post(
+            "/api/v1/notices",
+            data=json.dumps({
+                "title": "테스트 공지",
+                "content": "공지 내용입니다.",
+                "isPinned": True,
+            }),
+            content_type="application/json",
+            **self.headers(token),
+        )
+        self.assertEqual(created.status_code, 201, created.content)
+        notice_id = created.json()["id"]
+        self.assertTrue(created.json()["isPinned"])
+
+        bootstrap = self.client.get(
+            "/api/v1/bootstrap",
+            **self.headers(self.login("edu_teacher")),
+        )
+        self.assertEqual(bootstrap.status_code, 200, bootstrap.content)
+        self.assertEqual(bootstrap.json()["notices"][0]["title"], "테스트 공지")
+
+        updated = self.client.patch(
+            f"/api/v1/notices/{notice_id}",
+            data=json.dumps({"title": "수정 공지", "isPinned": False}),
+            content_type="application/json",
+            **self.headers(token),
+        )
+        self.assertEqual(updated.status_code, 200, updated.content)
+        self.assertEqual(updated.json()["title"], "수정 공지")
+
+        system_department, _ = Department.objects.get_or_create(name="시스템관리")
+        User.objects.create_superuser(
+            username="admin",
+            password="admin-password",
+            first_name="시스템 관리자",
+            department=system_department,
+            position="관리자",
+        )
+        denied = self.client.post(
+            "/api/v1/notices",
+            data=json.dumps({"title": "차단 공지", "content": "차단"}),
+            content_type="application/json",
+            **self.headers(self.login("admin", "admin-password")),
+        )
+        self.assertEqual(denied.status_code, 403, denied.content)
+        self.assertEqual(
+            denied.json()["error"]["code"],
+            "notice_management_not_allowed",
+        )
+
+        deleted = self.client.delete(
+            f"/api/v1/notices/{notice_id}",
+            **self.headers(token),
+        )
+        self.assertEqual(deleted.status_code, 204)
+        self.assertFalse(Notice.objects.filter(pk=notice_id).exists())
 
     def test_designated_admin_migration_updates_matching_account_only(self):
         department, _ = Department.objects.get_or_create(
@@ -410,7 +492,6 @@ class ApiFlowTests(TestCase):
                 "name": "신규직원",
                 "department": "신규부서",
                 "position": "사원",
-                "email": "new-member@example.com",
                 "hireDate": "2026-08-31",
                 "annualLeaveDays": 18,
                 "monthlyLeaveDays": 4.5,
@@ -420,6 +501,7 @@ class ApiFlowTests(TestCase):
             **headers,
         )
         self.assertEqual(created_employee.status_code, 201, created_employee.content)
+        self.assertNotIn("email", created_employee.json()["user"])
         self.assertEqual(created_employee.json()["user"]["annualLeaveDays"], 18.0)
         self.assertEqual(created_employee.json()["user"]["monthlyLeaveDays"], 4.5)
         self.assertEqual(
@@ -444,7 +526,6 @@ class ApiFlowTests(TestCase):
             data=json.dumps({
                 "id": "renamed_member",
                 "name": "수정직원",
-                "email": "updated@example.com",
                 "annualLeaveDays": 20,
                 "monthlyLeaveDays": 6,
                 "leaveBalanceAdjustment": 2.5,
@@ -556,7 +637,6 @@ class ApiFlowTests(TestCase):
             username="admin",
             password="admin0630",
             first_name="슈퍼어드민",
-            email="admin@example.invalid",
             department=department,
             position="시스템 관리자",
         )

@@ -17,14 +17,14 @@ from core.models import (
 
 
 USERS = [
-    ("edu_teacher", "교육강사", "교육관리팀", "대리", "edu_teacher@thewe.co.kr", False),
-    ("edu_manager", "교육관리자", "교육관리팀", "과장", "edu_manager@thewe.co.kr", True),
-    ("lee_jaeo", "이재오", "교육관리팀", "차장", "lee_jaeo@thewe.co.kr", False),
-    ("kim_kyunyoung", "김경영", "경영관리팀", "상무", "kim_kyunyoung@thewe.co.kr", False),
-    ("jiyun", "정지윤", "마케팅팀", "대리", "jiyun@thewe.co.kr", False),
-    ("han_dev", "한유진", "개발팀", "과장", "han_dev@thewe.co.kr", False),
-    ("director", "정효정", "경영관리팀", "이사", "director@thewe.co.kr", False),
-    ("ceo", "조상훈", "경영관리팀", "대표", "ceo@thewe.co.kr", False),
+    ("edu_teacher", "교육강사", "교육관리팀", "대리", False),
+    ("edu_manager", "교육관리자", "교육관리팀", "과장", True),
+    ("lee_jaeo", "이재오", "교육관리팀", "차장", False),
+    ("kim_kyunyoung", "김경영", "경영관리팀", "상무", False),
+    ("jiyun", "정지윤", "마케팅팀", "대리", False),
+    ("han_dev", "한유진", "개발팀", "과장", False),
+    ("director", "정효정", "경영관리팀", "이사", False),
+    ("ceo", "조상훈", "경영관리팀", "대표", False),
 ]
 
 FORMS = [
@@ -79,13 +79,12 @@ class Command(BaseCommand):
     @transaction.atomic
     def handle(self, *args, **options):
         accounts = {}
-        for username, name, department_name, position, email, is_admin in USERS:
+        for username, name, department_name, position, is_admin in USERS:
             department, _ = Department.get_or_create_at_end(department_name)
             user, created = User.objects.get_or_create(
                 username=username,
                 defaults={
                     "first_name": name,
-                    "email": email,
                     "department": department,
                     "position": position,
                     "hire_date": date(2024, 1, 15),

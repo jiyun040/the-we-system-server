@@ -146,7 +146,7 @@ def employees(request):
             raise ApiError("관리자 권한이 필요합니다.", status=403, code="permission_denied")
         data = parse_json(request)
         fields = {key: str(data.get(key) or "").strip() for key in (
-            "id", "password", "name", "department", "position", "email", "hireDate"
+            "id", "password", "name", "department", "position", "hireDate"
         )}
         require_fields(fields, fields.keys())
         try:
@@ -155,12 +155,10 @@ def employees(request):
             raise ApiError("입사일은 YYYY-MM-DD 형식이어야 합니다.", fields={"hireDate": "잘못된 날짜입니다."}) from exc
         if User.objects.filter(username=fields["id"]).exists():
             raise ApiError("이미 사용 중인 아이디입니다.", fields={"id": "중복된 아이디입니다."})
-        if User.objects.filter(email__iexact=fields["email"]).exists():
-            raise ApiError("이미 사용 중인 이메일입니다.", fields={"email": "중복된 이메일입니다."})
         department, _ = Department.get_or_create_at_end(fields["department"])
         user = User.objects.create_user(
             username=fields["id"], password=fields["password"], first_name=fields["name"],
-            email=fields["email"], department=department, position=fields["position"],
+            department=department, position=fields["position"],
             hire_date=hire_date,
             annual_leave_days=parse_leave_value(data, "annualLeaveDays"),
             monthly_leave_days=parse_leave_value(data, "monthlyLeaveDays"),
@@ -232,13 +230,6 @@ def employee_detail(request, user_id):
         require_fields({"name": name}, ["name"])
         user.first_name = name
         updated.append("first_name")
-    if "email" in data:
-        email = str(data["email"] or "").strip()
-        require_fields({"email": email}, ["email"])
-        if User.objects.exclude(pk=user.pk).filter(email__iexact=email).exists():
-            raise ApiError("이미 사용 중인 이메일입니다.", code="email_conflict")
-        user.email = email
-        updated.append("email")
     if "department" in data:
         department_name = str(data["department"] or "").strip()
         require_fields({"department": department_name}, ["department"])
