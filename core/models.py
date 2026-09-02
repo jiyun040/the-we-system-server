@@ -135,6 +135,7 @@ class ApprovalFormTemplate(models.Model):
     agreement = models.CharField(max_length=255, blank=True)
     document_layout = models.CharField(max_length=30, default="basic")
     line_item_rows = models.PositiveSmallIntegerField(default=8)
+    approval_lines = models.JSONField(default=list, blank=True)
     is_enabled = models.BooleanField(default=True)
     recent_count = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)

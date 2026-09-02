@@ -226,7 +226,7 @@ class ApiFlowTests(TestCase):
             "admin_otp_change_not_allowed",
         )
 
-    def test_only_designated_otp_admin_can_manage_notices(self):
+    def test_designated_admin_and_super_admin_can_manage_notices(self):
         department, _ = Department.objects.get_or_create(
             name=DESIGNATED_ADMIN_DEPARTMENT
         )
@@ -278,17 +278,14 @@ class ApiFlowTests(TestCase):
             department=system_department,
             position="관리자",
         )
-        denied = self.client.post(
+        super_created = self.client.post(
             "/api/v1/notices",
-            data=json.dumps({"title": "차단 공지", "content": "차단"}),
+            data=json.dumps({"title": "슈퍼어드민 공지", "content": "관리 가능"}),
             content_type="application/json",
             **self.headers(self.login("admin", "admin-password")),
         )
-        self.assertEqual(denied.status_code, 403, denied.content)
-        self.assertEqual(
-            denied.json()["error"]["code"],
-            "notice_management_not_allowed",
-        )
+        self.assertEqual(super_created.status_code, 201, super_created.content)
+        self.assertEqual(super_created.json()["title"], "슈퍼어드민 공지")
 
         deleted = self.client.delete(
             f"/api/v1/notices/{notice_id}",
@@ -472,6 +469,75 @@ class ApiFlowTests(TestCase):
         self.assertEqual(settings.monthly_leave_per_month, 2)
         self.assertEqual(settings.enabled_app_ids, ["approval"])
 
+    def test_form_approval_lines_round_trip(self):
+        token = self.login()
+        response = self.client.patch(
+            "/api/v1/approval-forms/business-draft",
+            data=json.dumps({
+                "approvalLines": [
+                    {
+                        "id": "standard-line",
+                        "name": "기본 결재라인",
+                        "userIds": ["edu_manager", "lee_jaeo"],
+                    },
+                    {
+                        "id": "executive-line",
+                        "name": "임원 결재라인",
+                        "userIds": ["director", "ceo"],
+                    },
+                ],
+            }),
+            content_type="application/json",
+            **self.headers(token),
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["approvalLines"][1]["name"], "임원 결재라인")
+
+        bootstrap = self.client.get(
+            "/api/v1/bootstrap",
+            **self.headers(token),
+        )
+        business = next(
+            form
+            for form in bootstrap.json()["formTemplates"]
+            if form["id"] == "business-draft"
+        )
+        self.assertEqual(
+            business["approvalLines"][0]["userIds"],
+            ["edu_manager", "lee_jaeo"],
+        )
+
+    def test_document_access_settings_persist_as_one_snapshot(self):
+        token = self.login()
+        payload = {
+            "organizationWideDocumentCategories": ["회계"],
+            "documentCategoryViewerIds": {
+                "지원": ["edu_teacher"],
+                "회계": [],
+                "근태": ["lee_jaeo", "edu_teacher"],
+            },
+        }
+        response = self.client.patch(
+            "/api/v1/settings",
+            data=json.dumps(payload),
+            content_type="application/json",
+            **self.headers(token),
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+
+        bootstrap = self.client.get(
+            "/api/v1/bootstrap",
+            **self.headers(token),
+        ).json()["settings"]
+        self.assertEqual(
+            bootstrap["organizationWideDocumentCategories"],
+            ["회계"],
+        )
+        self.assertEqual(
+            bootstrap["documentCategoryViewerIds"],
+            payload["documentCategoryViewerIds"],
+        )
+
     def test_department_and_employee_crud(self):
         token = self.login()
         headers = self.headers(token)
@@ -516,7 +582,14 @@ class ApiFlowTests(TestCase):
         setting.save(update_fields=["document_category_viewer_ids"])
         template = ApprovalFormTemplate.objects.first()
         template.viewers = ["new_member"]
-        template.save(update_fields=["viewers"])
+        template.approval_lines = [
+            {
+                "id": "employee-line",
+                "name": "직원 결재라인",
+                "userIds": ["new_member", "edu_teacher"],
+            },
+        ]
+        template.save(update_fields=["viewers", "approval_lines"])
         document = ApprovalDocument.objects.first()
         document.references = ["new_member"]
         document.save(update_fields=["references"])
@@ -553,6 +626,10 @@ class ApiFlowTests(TestCase):
             ["renamed_member", "edu_teacher"],
         )
         self.assertEqual(template.viewers, ["renamed_member"])
+        self.assertEqual(
+            template.approval_lines[0]["userIds"],
+            ["renamed_member", "edu_teacher"],
+        )
         self.assertEqual(document.references, ["renamed_member"])
 
         duplicate_id = self.client.patch(

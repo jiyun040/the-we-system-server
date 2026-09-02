@@ -26,6 +26,21 @@ def replace_user_reference(values, old_id, new_id):
     return [new_id if value == old_id else value for value in values]
 
 
+def replace_approval_line_reference(lines, old_id, new_id):
+    if not isinstance(lines, list):
+        return lines
+    updated = []
+    for line in lines:
+        if not isinstance(line, dict):
+            updated.append(line)
+            continue
+        updated.append({
+            **line,
+            "userIds": replace_user_reference(line.get("userIds"), old_id, new_id),
+        })
+    return updated
+
+
 def rename_user_references(old_id, new_id):
     if old_id == new_id:
         return
@@ -40,6 +55,16 @@ def rename_user_references(old_id, new_id):
                     updated_fields.append(field)
             if updated_fields:
                 row.save(update_fields=updated_fields)
+
+    for form in ApprovalFormTemplate.objects.only("pk", "approval_lines").iterator():
+        updated_lines = replace_approval_line_reference(
+            form.approval_lines,
+            old_id,
+            new_id,
+        )
+        if updated_lines != form.approval_lines:
+            form.approval_lines = updated_lines
+            form.save(update_fields=["approval_lines"])
 
     setting = PortalSetting.load()
     current_viewers = setting.document_category_viewer_ids

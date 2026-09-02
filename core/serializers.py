@@ -46,6 +46,7 @@ def form_data(form, recent_count=None):
         "agreement": form.agreement,
         "documentLayout": form.document_layout,
         "lineItemRows": form.line_item_rows,
+        "approvalLines": form.approval_lines,
         "enabled": form.is_enabled,
         "recentCount": form.recent_count if recent_count is None else recent_count,
     }

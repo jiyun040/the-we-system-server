@@ -20,8 +20,57 @@ FORM_FIELDS = {
     "agreement": "agreement",
     "documentLayout": "document_layout",
     "lineItemRows": "line_item_rows",
+    "approvalLines": "approval_lines",
     "enabled": "is_enabled",
 }
+
+
+def normalize_approval_lines(value):
+    if not isinstance(value, list):
+        raise ApiError(
+            "결재라인 형식을 확인해 주세요.",
+            fields={"approvalLines": "목록 형식이어야 합니다."},
+        )
+    normalized = []
+    used_ids = set()
+    for index, item in enumerate(value):
+        if not isinstance(item, dict):
+            raise ApiError(
+                "결재라인 형식을 확인해 주세요.",
+                fields={"approvalLines": "각 결재라인은 객체여야 합니다."},
+            )
+        line_id = str(item.get("id") or f"line-{index + 1}").strip()
+        name = str(item.get("name") or "").strip()
+        raw_user_ids = item.get("userIds")
+        if not line_id or line_id in used_ids or not name or not isinstance(raw_user_ids, list):
+            raise ApiError(
+                "결재라인 이름과 결재자를 확인해 주세요.",
+                fields={"approvalLines": "이름과 결재자 목록이 필요합니다."},
+            )
+        user_ids = []
+        for raw_user_id in raw_user_ids:
+            user_id = str(raw_user_id or "").strip()
+            if user_id and user_id not in user_ids:
+                user_ids.append(user_id)
+        if not user_ids:
+            raise ApiError(
+                "결재라인마다 한 명 이상의 결재자를 선택해 주세요.",
+                fields={"approvalLines": "결재자가 없습니다."},
+            )
+        used_ids.add(line_id)
+        normalized.append({"id": line_id, "name": name, "userIds": user_ids})
+    return normalized
+
+
+def form_values(data):
+    values = {
+        internal: data[external]
+        for external, internal in FORM_FIELDS.items()
+        if external in data
+    }
+    if "approvalLines" in data:
+        values["approval_lines"] = normalize_approval_lines(data["approvalLines"])
+    return values
 
 
 @endpoint(["GET", "POST"], dev_fallback=True)
@@ -40,7 +89,7 @@ def forms(request):
         requested_slug = f"form-{ApprovalFormTemplate.objects.count() + 1}"
     if ApprovalFormTemplate.objects.filter(slug=requested_slug).exists():
         raise ApiError("이미 사용 중인 양식 ID입니다.", code="form_conflict")
-    values = {internal: data[external] for external, internal in FORM_FIELDS.items() if external in data}
+    values = form_values(data)
     form = ApprovalFormTemplate.objects.create(slug=requested_slug, **values)
     return JsonResponse(form_data(form), status=201)
 
@@ -59,10 +108,9 @@ def form_detail(request, form_id):
         return HttpResponse(status=204)
     data = parse_json(request)
     updated = []
-    for external, internal in FORM_FIELDS.items():
-        if external in data:
-            setattr(form, internal, data[external])
-            updated.append(internal)
+    for internal, value in form_values(data).items():
+        setattr(form, internal, value)
+        updated.append(internal)
     if updated:
         form.save(update_fields=updated + ["updated_at"])
     return JsonResponse(form_data(form))

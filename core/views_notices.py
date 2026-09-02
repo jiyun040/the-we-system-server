@@ -1,15 +1,15 @@
 from django.http import HttpResponse, JsonResponse
 
-from .admin_access import can_change_admin_otp
+from .admin_access import can_change_admin_otp, is_super_admin_account
 from .api import ApiError, endpoint, parse_json, require_fields
 from .models import Notice
 from .serializers import notice_data
 
 
 def require_notice_manager(user):
-    if not can_change_admin_otp(user):
+    if not (can_change_admin_otp(user) or is_super_admin_account(user)):
         raise ApiError(
-            "OTP 관리자 계정만 공지사항을 관리할 수 있습니다.",
+            "관리자 계정만 공지사항을 관리할 수 있습니다.",
             status=403,
             code="notice_management_not_allowed",
         )
