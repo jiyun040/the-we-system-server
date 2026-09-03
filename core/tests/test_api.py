@@ -959,6 +959,64 @@ class ApiFlowTests(TestCase):
         self.assertEqual(response.json()["serviceYear"], 5)
         self.assertEqual(response.json()["entitlement"], 17)
 
+    def test_leave_summary_resets_usage_on_january_first(self):
+        teacher = User.objects.get(username="edu_teacher")
+        teacher.leave_requests.all().delete()
+        today = date.today()
+        teacher.hire_date = date(today.year - 5, 1, 1)
+        teacher.save(update_fields=["hire_date"])
+        setting = PortalSetting.load()
+        setting.annual_leave_by_year = {"1": 15, "5": 17}
+        setting.save(update_fields=["annual_leave_by_year", "updated_at"])
+        LeaveRequest.objects.create(
+            public_id="LEAVE-LAST-YEAR",
+            user=teacher,
+            leave_type="연차",
+            start_date=date(today.year - 1, 12, 31),
+            end_date=date(today.year - 1, 12, 31),
+            days=2,
+            status=LeaveRequest.Status.APPROVED,
+        )
+        LeaveRequest.objects.create(
+            public_id="LEAVE-THIS-YEAR",
+            user=teacher,
+            leave_type="연차",
+            start_date=date(today.year, 1, 1),
+            end_date=date(today.year, 1, 1),
+            days=1,
+            status=LeaveRequest.Status.PENDING,
+        )
+
+        response = self.client.get(
+            "/api/v1/leave/summary",
+            **self.headers(self.login("edu_teacher")),
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["used"], 0)
+        self.assertEqual(response.json()["pending"], 1)
+        self.assertEqual(response.json()["remaining"], 16)
+
+    def test_leave_summary_uses_monthly_leave_before_first_anniversary(self):
+        teacher = User.objects.get(username="edu_teacher")
+        teacher.leave_requests.all().delete()
+        today = date.today()
+        teacher.hire_date = date(today.year, 1, 1)
+        teacher.save(update_fields=["hire_date"])
+        setting = PortalSetting.load()
+        setting.monthly_leave_per_month = 2
+        setting.save(update_fields=["monthly_leave_per_month", "updated_at"])
+
+        response = self.client.get(
+            "/api/v1/leave/summary",
+            **self.headers(self.login("edu_teacher")),
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["serviceYear"], 1)
+        self.assertEqual(response.json()["entitlement"], (today.month - 1) * 2)
+        self.assertEqual(response.json()["remaining"], (today.month - 1) * 2)
+
     def test_regular_user_cannot_self_approve_direct_leave(self):
         token = self.login("edu_teacher")
         response = self.client.post(

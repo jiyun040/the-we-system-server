@@ -258,12 +258,31 @@ def leave_summary(request):
     if (today.month, today.day) < (user.hire_date.month, user.hire_date.day):
         completed_years -= 1
     service_year = max(1, completed_years)
-    policy = setting.annual_leave_by_year
-    entitlement = entitlement_for_service_year(policy, service_year)
-    approved = user.leave_requests.filter(status=LeaveRequest.Status.APPROVED)
-    pending = user.leave_requests.filter(status=LeaveRequest.Status.PENDING)
+    completed_months = (
+        (today.year - user.hire_date.year) * 12
+        + today.month
+        - user.hire_date.month
+    )
+    if today.day < user.hire_date.day:
+        completed_months -= 1
+    completed_months = max(0, completed_months)
+    if completed_months < 12:
+        entitlement = Decimal(completed_months * setting.monthly_leave_per_month)
+    else:
+        entitlement = Decimal(
+            str(
+                entitlement_for_service_year(
+                    setting.annual_leave_by_year,
+                    service_year,
+                )
+            )
+        )
+    current_year_requests = user.leave_requests.filter(start_date__year=today.year)
+    approved = current_year_requests.filter(status=LeaveRequest.Status.APPROVED)
+    pending = current_year_requests.filter(status=LeaveRequest.Status.PENDING)
     used = sum((item.days for item in approved), Decimal("0"))
     pending_days = sum((item.days for item in pending), Decimal("0"))
+    remaining = max(Decimal("0"), entitlement - used - pending_days)
     return JsonResponse({
         "userId": user.username,
         "year": today.year,
@@ -271,7 +290,7 @@ def leave_summary(request):
         "entitlement": float(entitlement),
         "used": float(used),
         "pending": float(pending_days),
-        "remaining": float(Decimal(str(entitlement)) - used),
+        "remaining": float(remaining),
     })
 
 
