@@ -29,15 +29,8 @@ def is_super_admin_account(user):
 
 
 def can_change_admin_otp(user):
-    if user is None or not user.is_active:
+    if user is None or not user.is_staff or not user.is_active:
         return False
-
-    if user.username == "we81046":
-        return True
-
-    if user.is_superuser or user.is_staff:
-        return True
-
     department_name = user.department.name if user.department else ""
     return matches_designated_admin_profile(
         user.username,
@@ -45,6 +38,7 @@ def can_change_admin_otp(user):
         department_name,
         user.position,
     )
+
 
 def verify_admin_otp_for_user(user, otp):
     if is_super_admin_account(user):

@@ -251,6 +251,7 @@ class LeaveRequest(models.Model):
     reason = models.TextField(blank=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
     ceo_status = models.CharField(max_length=20, default="진행중")
+    approval_line = models.JSONField(default=list, blank=True)
     rejected_by = models.CharField(max_length=100, blank=True)
     direct_entry = models.BooleanField(default=False)
     registered_by = models.ForeignKey(
@@ -295,6 +296,7 @@ class PortalSetting(models.Model):
         default=default_wide_document_categories
     )
     document_category_viewer_ids = models.JSONField(default=dict, blank=True)
+    leave_approval_lines = models.JSONField(default=dict, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     @classmethod

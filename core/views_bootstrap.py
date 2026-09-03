@@ -18,6 +18,7 @@ from .serializers import (
     user_data,
 )
 from .views_approvals import can_read, document_queryset, frequent_forms_for_user
+from .views_leave import can_view_leave
 
 @endpoint(["GET"])
 def bootstrap(request):
@@ -34,8 +35,7 @@ def bootstrap(request):
     leaves = LeaveRequest.objects.select_related(
         "user", "user__department", "registered_by"
     )
-    if not user.is_staff and user.username != "ceo":
-        leaves = leaves.filter(user=user)
+    leaves = [leave for leave in leaves if can_view_leave(user, leave)]
     setting = PortalSetting.load()
     departments = list(
         Department.objects.exclude(name="시스템관리")

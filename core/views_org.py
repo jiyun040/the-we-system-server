@@ -11,6 +11,7 @@ from .models import (
     ApprovalDocument,
     ApprovalFormTemplate,
     Department,
+    LeaveRequest,
     PortalSetting,
 )
 from .serializers import settings_data, user_data
@@ -68,15 +69,73 @@ def rename_user_references(old_id, new_id):
 
     setting = PortalSetting.load()
     current_viewers = setting.document_category_viewer_ids
-    if not isinstance(current_viewers, dict):
-        return
-    updated_viewers = {
-        category: replace_user_reference(user_ids, old_id, new_id)
-        for category, user_ids in current_viewers.items()
-    }
+    updated_viewers = (
+        {
+            category: replace_user_reference(user_ids, old_id, new_id)
+            for category, user_ids in current_viewers.items()
+        }
+        if isinstance(current_viewers, dict)
+        else current_viewers
+    )
+    updated_fields = []
     if updated_viewers != current_viewers:
         setting.document_category_viewer_ids = updated_viewers
-        setting.save(update_fields=["document_category_viewer_ids", "updated_at"])
+        updated_fields.append("document_category_viewer_ids")
+    current_leave_lines = setting.leave_approval_lines
+    updated_leave_lines = (
+        {
+            department: replace_user_reference(user_ids, old_id, new_id)
+            for department, user_ids in current_leave_lines.items()
+        }
+        if isinstance(current_leave_lines, dict)
+        else current_leave_lines
+    )
+    if updated_leave_lines != current_leave_lines:
+        setting.leave_approval_lines = updated_leave_lines
+        updated_fields.append("leave_approval_lines")
+    if updated_fields:
+        setting.save(update_fields=[*updated_fields, "updated_at"])
+
+    for leave in LeaveRequest.objects.only("pk", "approval_line").iterator():
+        current_line = leave.approval_line
+        if not isinstance(current_line, list):
+            continue
+        updated_line = [
+            {
+                **step,
+                "userId": new_id if step.get("userId") == old_id else step.get("userId"),
+            }
+            if isinstance(step, dict)
+            else step
+            for step in current_line
+        ]
+        if updated_line != current_line:
+            leave.approval_line = updated_line
+            leave.save(update_fields=["approval_line"])
+
+
+def normalize_leave_approval_lines(value):
+    if not isinstance(value, dict):
+        raise ApiError(
+            "부서별 휴가 결재라인 형식을 확인해 주세요.",
+            fields={"leaveApprovalLines": "객체 형식이어야 합니다."},
+        )
+    normalized = {}
+    for department, user_ids in value.items():
+        department_name = str(department).strip()
+        if not department_name or not isinstance(user_ids, list):
+            raise ApiError(
+                "부서별 휴가 결재라인 형식을 확인해 주세요.",
+                fields={"leaveApprovalLines": "부서와 결재자 목록이 필요합니다."},
+            )
+        unique_ids = []
+        for user_id in user_ids:
+            normalized_id = str(user_id).strip()
+            if normalized_id and normalized_id not in unique_ids:
+                unique_ids.append(normalized_id)
+        if unique_ids:
+            normalized[department_name] = unique_ids
+    return normalized
 
 
 def parse_leave_value(data, key, *, minimum=Decimal("0")):
@@ -329,6 +388,14 @@ def department_detail(request, department_id):
     department.name = name
     department.save(update_fields=["name"])
     ApprovalDocument.objects.filter(department_name=old_name).update(department_name=name)
+    setting = PortalSetting.load()
+    leave_lines = setting.leave_approval_lines
+    if isinstance(leave_lines, dict) and old_name in leave_lines:
+        setting.leave_approval_lines = {
+            (name if department_name == old_name else department_name): user_ids
+            for department_name, user_ids in leave_lines.items()
+        }
+        setting.save(update_fields=["leave_approval_lines", "updated_at"])
     return JsonResponse({"id": department.pk, "name": department.name})
 
 
@@ -357,11 +424,15 @@ def portal_settings(request):
             "enabledAppIds": "enabled_app_ids",
             "organizationWideDocumentCategories": "organization_wide_document_categories",
             "documentCategoryViewerIds": "document_category_viewer_ids",
+            "leaveApprovalLines": "leave_approval_lines",
         }
         updated = []
         for external, internal in field_map.items():
             if external in data:
-                setattr(setting, internal, data[external])
+                value = data[external]
+                if external == "leaveApprovalLines":
+                    value = normalize_leave_approval_lines(value)
+                setattr(setting, internal, value)
                 updated.append(internal)
         if updated:
             setting.save(update_fields=updated + ["updated_at"])

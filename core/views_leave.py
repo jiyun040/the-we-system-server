@@ -48,6 +48,87 @@ def queryset():
     )
 
 
+def approval_users_for(target):
+    setting = PortalSetting.load()
+    department_name = target.department.name if target.department else ""
+    configured = setting.leave_approval_lines
+    user_ids = (
+        configured.get(department_name, [])
+        if isinstance(configured, dict)
+        else []
+    )
+    candidates = {
+        item.username: item
+        for item in User.objects.select_related("department").filter(
+            username__in=user_ids,
+            is_active=True,
+        )
+    }
+    approvers = [
+        candidates[user_id]
+        for user_id in user_ids
+        if user_id in candidates and candidates[user_id].pk != target.pk
+    ]
+    if approvers:
+        return approvers
+
+    fallback = (
+        User.objects.select_related("department")
+        .filter(username="ceo", is_active=True)
+        .exclude(pk=target.pk)
+        .first()
+    )
+    if fallback is None:
+        fallback = (
+            User.objects.select_related("department")
+            .filter(is_staff=True, is_active=True)
+            .exclude(pk=target.pk)
+            .order_by("pk")
+            .first()
+        )
+    if fallback is None:
+        raise ApiError(
+            "휴가 결재자를 찾을 수 없습니다. 관리자에서 부서별 휴가 결재라인을 설정해 주세요.",
+            code="leave_approval_line_missing",
+        )
+    return [fallback]
+
+
+def approval_line_data(approvers):
+    return [
+        {
+            "userId": approver.username,
+            "name": approver.display_name,
+            "department": approver.department.name if approver.department else "",
+            "position": approver.position,
+            "status": "진행중" if index == 0 else "예정",
+        }
+        for index, approver in enumerate(approvers)
+    ]
+
+
+def can_view_leave(user, leave):
+    if user.is_staff or user.username == "ceo" or leave.user_id == user.pk:
+        return True
+    return any(
+        isinstance(step, dict) and step.get("userId") == user.username
+        for step in (leave.approval_line or [])
+    )
+
+
+def entitlement_for_service_year(policy, service_year):
+    normalized = {
+        int(year): value
+        for year, value in (policy or {}).items()
+        if str(year).isdigit() and int(year) > 0
+    }
+    if not normalized:
+        return 15
+    applicable_years = [year for year in normalized if year <= service_year]
+    selected_year = max(applicable_years) if applicable_years else min(normalized)
+    return normalized[selected_year]
+
+
 @endpoint(["GET", "POST"], dev_fallback=True)
 @transaction.atomic
 def leave_requests(request):
@@ -56,13 +137,12 @@ def leave_requests(request):
         rows = queryset()
         user_id = request.GET.get("userId")
         status = request.GET.get("status")
-        if not user.is_staff and user.username != "ceo":
-            rows = rows.filter(user=user)
-        elif user_id:
+        if user_id and (user.is_staff or user.username == "ceo"):
             rows = rows.filter(user__username=user_id)
         if status:
             rows = rows.filter(status=status)
-        return JsonResponse({"leaveRequests": [leave_data(item) for item in rows]})
+        visible_rows = [item for item in rows if can_view_leave(user, item)]
+        return JsonResponse({"leaveRequests": [leave_data(item) for item in visible_rows]})
 
     data = parse_json(request)
     require_fields(data, ["type", "startDate", "endDate", "days"])
@@ -87,6 +167,8 @@ def leave_requests(request):
     end = parse_date(data["endDate"], "endDate")
     if end < start:
         raise ApiError("종료일은 시작일보다 빠를 수 없습니다.", fields={"endDate": "날짜 범위를 확인해 주세요."})
+    approvers = [] if direct_entry else approval_users_for(target)
+    approval_line = approval_line_data(approvers)
     leave = LeaveRequest.objects.create(
         public_id=next_leave_id(),
         user=target,
@@ -97,12 +179,12 @@ def leave_requests(request):
         reason=str(data.get("reason") or "").strip(),
         status=LeaveRequest.Status.APPROVED if direct_entry else LeaveRequest.Status.PENDING,
         ceo_status="완료" if direct_entry else "진행중",
+        approval_line=approval_line,
         direct_entry=direct_entry,
         registered_by=user if direct_entry else None,
         acknowledged=direct_entry,
     )
     if not direct_entry:
-        ceo = User.objects.select_related("department").filter(username="ceo").first()
         document = ApprovalDocument.objects.create(
             public_id=f"LEAVE-DOC-{leave.public_id}",
             title=f"{target.display_name} {leave.leave_type} 신청",
@@ -112,7 +194,7 @@ def leave_requests(request):
             status=ApprovalDocument.Status.PENDING,
             drafted_at=timezone.localdate(),
             due_date=start,
-            progress=50,
+            progress=int(100 / (len(approvers) + 1)),
             document_no=leave.public_id,
             effective_date=start,
             content=(
@@ -123,7 +205,7 @@ def leave_requests(request):
             can_cancel=False,
             can_reuse=False,
             can_edit=False,
-            receivers=["대표"],
+            receivers=[approver.username for approver in approvers],
             references=["경영관리팀"],
         )
         ApprovalStep.objects.create(
@@ -137,16 +219,17 @@ def leave_requests(request):
             status="완료",
             approved_at=timezone.now(),
         )
-        ApprovalStep.objects.create(
-            document=document,
-            order=1,
-            approver=ceo,
-            name=ceo.display_name if ceo else "대표",
-            department=ceo.department.name if ceo and ceo.department else "경영관리팀",
-            step_type="승인",
-            role=ceo.position if ceo else "대표",
-            status="진행중",
-        )
+        for index, approver in enumerate(approvers, start=1):
+            ApprovalStep.objects.create(
+                document=document,
+                order=index,
+                approver=approver,
+                name=approver.display_name,
+                department=approver.department.name if approver.department else "",
+                step_type="승인",
+                role=approver.position,
+                status="진행중" if index == 1 else "예정",
+            )
         ApprovalHistory.objects.create(
             public_id=f"HIS-{leave.public_id}",
             document=document,
@@ -171,9 +254,12 @@ def leave_summary(request):
             raise ApiError("직원을 찾을 수 없습니다.", status=404, code="user_not_found")
     setting = PortalSetting.load()
     today = timezone.localdate()
-    service_year = max(1, today.year - user.hire_date.year + 1)
+    completed_years = today.year - user.hire_date.year
+    if (today.month, today.day) < (user.hire_date.month, user.hire_date.day):
+        completed_years -= 1
+    service_year = max(1, completed_years)
     policy = setting.annual_leave_by_year
-    entitlement = policy.get(str(min(service_year, 10)), policy.get("10", 15))
+    entitlement = entitlement_for_service_year(policy, service_year)
     approved = user.leave_requests.filter(status=LeaveRequest.Status.APPROVED)
     pending = user.leave_requests.filter(status=LeaveRequest.Status.PENDING)
     used = sum((item.days for item in approved), Decimal("0"))
@@ -191,8 +277,6 @@ def leave_summary(request):
 
 @endpoint(["POST"], dev_fallback=True)
 def act_on_leave(request, leave_id, action):
-    if not request.api_user.is_staff and request.api_user.username != "ceo":
-        raise ApiError("휴가 결재 권한이 필요합니다.", status=403, code="permission_denied")
     data = parse_json(request)
     with transaction.atomic():
         leave = LeaveRequest.objects.select_for_update().filter(public_id=leave_id).first()
@@ -200,17 +284,44 @@ def act_on_leave(request, leave_id, action):
             raise ApiError("휴가 신청을 찾을 수 없습니다.", status=404, code="not_found")
         if leave.status != LeaveRequest.Status.PENDING:
             raise ApiError("이미 처리된 휴가 신청입니다.", status=409, code="invalid_state")
+        line = [dict(step) for step in (leave.approval_line or []) if isinstance(step, dict)]
+        current_index = next(
+            (index for index, step in enumerate(line) if step.get("status") == "진행중"),
+            None,
+        )
+        if current_index is not None:
+            if line[current_index].get("userId") != request.api_user.username:
+                raise ApiError(
+                    "현재 순서의 휴가 결재자만 처리할 수 있습니다.",
+                    status=403,
+                    code="permission_denied",
+                )
+        elif not request.api_user.is_staff and request.api_user.username != "ceo":
+            raise ApiError("휴가 결재 권한이 필요합니다.", status=403, code="permission_denied")
+
+        final_approval = current_index is None or current_index == len(line) - 1
         if action == "approve":
-            leave.status = LeaveRequest.Status.APPROVED
-            leave.ceo_status = "완료"
+            if current_index is not None:
+                line[current_index]["status"] = "완료"
+                if not final_approval:
+                    line[current_index + 1]["status"] = "진행중"
+            leave.status = (
+                LeaveRequest.Status.APPROVED
+                if final_approval
+                else LeaveRequest.Status.PENDING
+            )
+            leave.ceo_status = "완료" if final_approval else "진행중"
             leave.rejected_by = ""
         else:
+            if current_index is not None:
+                line[current_index]["status"] = "반려"
             leave.status = LeaveRequest.Status.REJECTED
             leave.ceo_status = "반려"
             leave.rejected_by = request.api_user.display_name
             reason = str(data.get("reason") or "").strip()
             if reason:
                 leave.reason = f"{leave.reason}\n반려 사유: {reason}".strip()
+        leave.approval_line = line
         leave.save()
         document = ApprovalDocument.objects.filter(
             public_id=f"LEAVE-DOC-{leave.public_id}"
@@ -218,15 +329,29 @@ def act_on_leave(request, leave_id, action):
         if document:
             document.status = (
                 ApprovalDocument.Status.APPROVED
+                if action == "approve" and final_approval
+                else ApprovalDocument.Status.PENDING
                 if action == "approve"
                 else ApprovalDocument.Status.REJECTED
             )
-            document.progress = 100 if action == "approve" else document.progress
-            document.save(update_fields=["status", "progress", "updated_at"])
-            document.steps.filter(status="진행중").update(
-                status="완료" if action == "approve" else "반려",
-                approved_at=timezone.now(),
+            document.progress = (
+                100
+                if action == "approve" and final_approval
+                else int(((current_index or 0) + 1) / max(len(line), 1) * 100)
+                if action == "approve"
+                else document.progress
             )
+            document.save(update_fields=["status", "progress", "updated_at"])
+            current_step = document.steps.filter(status="진행중").first()
+            if current_step:
+                current_step.status = "완료" if action == "approve" else "반려"
+                current_step.approved_at = timezone.now()
+                current_step.save(update_fields=["status", "approved_at"])
+            if action == "approve" and not final_approval:
+                next_step = document.steps.filter(status="예정").order_by("order").first()
+                if next_step:
+                    next_step.status = "진행중"
+                    next_step.save(update_fields=["status"])
     return JsonResponse(leave_data(queryset().get(pk=leave.pk)))
 
 

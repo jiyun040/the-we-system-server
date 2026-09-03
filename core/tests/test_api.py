@@ -1,4 +1,5 @@
 import json
+from datetime import date
 from importlib import import_module
 
 from django.apps import apps
@@ -579,7 +580,13 @@ class ApiFlowTests(TestCase):
         setting.document_category_viewer_ids = {
             "지원": ["new_member", "edu_teacher"],
         }
-        setting.save(update_fields=["document_category_viewer_ids"])
+        setting.leave_approval_lines = {
+            "신규부서": ["new_member", "edu_teacher"],
+        }
+        setting.save(update_fields=[
+            "document_category_viewer_ids",
+            "leave_approval_lines",
+        ])
         template = ApprovalFormTemplate.objects.first()
         template.viewers = ["new_member"]
         template.approval_lines = [
@@ -623,6 +630,10 @@ class ApiFlowTests(TestCase):
         document.refresh_from_db()
         self.assertEqual(
             setting.document_category_viewer_ids["지원"],
+            ["renamed_member", "edu_teacher"],
+        )
+        self.assertEqual(
+            setting.leave_approval_lines["신규부서"],
             ["renamed_member", "edu_teacher"],
         )
         self.assertEqual(template.viewers, ["renamed_member"])
@@ -766,12 +777,17 @@ class ApiFlowTests(TestCase):
                 "enabledAppIds": ["approval", "leave"],
                 "organizationWideDocumentCategories": ["지원"],
                 "documentCategoryViewerIds": {"회계": ["edu_teacher"]},
+                "leaveApprovalLines": {"교육관리팀": ["edu_manager", "ceo"]},
             }),
             content_type="application/json",
             **self.headers(token),
         )
         self.assertEqual(updated.status_code, 200, updated.content)
         self.assertEqual(updated.json()["portalName"], "연동 테스트 포털")
+        self.assertEqual(
+            updated.json()["leaveApprovalLines"],
+            {"교육관리팀": ["edu_manager", "ceo"]},
+        )
         bootstrap = self.client.get("/api/v1/bootstrap", **self.headers(token)).json()
         self.assertEqual(bootstrap["settings"]["enabledAppIds"], ["approval", "leave"])
 
@@ -822,7 +838,7 @@ class ApiFlowTests(TestCase):
         )
         self.assertEqual(response.status_code, 201, response.content)
         leave_id = response.json()["id"]
-        admin_token = self.login()
+        admin_token = self.login("ceo")
         approved = self.client.post(
             f"/api/v1/leave/requests/{leave_id}/approve",
             data="{}",
@@ -865,6 +881,83 @@ class ApiFlowTests(TestCase):
             ApprovalDocument.objects.get(public_id=document_id).status,
             ApprovalDocument.Status.APPROVED,
         )
+
+    def test_department_leave_approval_line_is_applied_in_order(self):
+        teacher = User.objects.select_related("department").get(username="edu_teacher")
+        setting = PortalSetting.load()
+        setting.leave_approval_lines = {
+            teacher.department.name: ["edu_manager", "ceo"],
+        }
+        setting.save(update_fields=["leave_approval_lines", "updated_at"])
+
+        response = self.client.post(
+            "/api/v1/leave/requests",
+            data=json.dumps({
+                "type": "연차",
+                "startDate": "2026-09-04",
+                "endDate": "2026-09-04",
+                "days": 1,
+                "reason": "부서별 결재 테스트",
+            }),
+            content_type="application/json",
+            **self.headers(self.login("edu_teacher")),
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        leave_id = response.json()["id"]
+        self.assertEqual(
+            [step["userId"] for step in response.json()["approvalLine"]],
+            ["edu_manager", "ceo"],
+        )
+
+        early_final = self.client.post(
+            f"/api/v1/leave/requests/{leave_id}/approve",
+            data="{}",
+            content_type="application/json",
+            **self.headers(self.login("ceo")),
+        )
+        self.assertEqual(early_final.status_code, 403, early_final.content)
+
+        first = self.client.post(
+            f"/api/v1/leave/requests/{leave_id}/approve",
+            data="{}",
+            content_type="application/json",
+            **self.headers(self.login("edu_manager")),
+        )
+        self.assertEqual(first.status_code, 200, first.content)
+        self.assertEqual(first.json()["status"], "승인대기")
+        self.assertEqual(
+            [step["status"] for step in first.json()["approvalLine"]],
+            ["완료", "진행중"],
+        )
+
+        final = self.client.post(
+            f"/api/v1/leave/requests/{leave_id}/approve",
+            data="{}",
+            content_type="application/json",
+            **self.headers(self.login("ceo")),
+        )
+        self.assertEqual(final.status_code, 200, final.content)
+        self.assertEqual(final.json()["status"], "승인")
+        self.assertEqual(
+            [step["status"] for step in final.json()["approvalLine"]],
+            ["완료", "완료"],
+        )
+
+    def test_leave_summary_uses_completed_service_years(self):
+        teacher = User.objects.get(username="edu_teacher")
+        teacher.hire_date = date(date.today().year - 5, 1, 1)
+        teacher.save(update_fields=["hire_date"])
+        setting = PortalSetting.load()
+        setting.annual_leave_by_year = {"1": 15, "5": 17, "6": 18, "10": 20}
+        setting.save(update_fields=["annual_leave_by_year", "updated_at"])
+
+        response = self.client.get(
+            "/api/v1/leave/summary",
+            **self.headers(self.login("edu_teacher")),
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["serviceYear"], 5)
+        self.assertEqual(response.json()["entitlement"], 17)
 
     def test_regular_user_cannot_self_approve_direct_leave(self):
         token = self.login("edu_teacher")

@@ -135,6 +135,7 @@ def leave_data(request):
         "reason": request.reason,
         "status": request.status,
         "ceoStatus": request.ceo_status,
+        "approvalLine": request.approval_line,
         "rejectedBy": request.rejected_by,
         "directEntry": request.direct_entry,
         "registeredBy": request.registered_by.display_name if request.registered_by else "",
@@ -167,4 +168,5 @@ def settings_data(setting):
         "enabledAppIds": setting.enabled_app_ids,
         "organizationWideDocumentCategories": setting.organization_wide_document_categories,
         "documentCategoryViewerIds": setting.document_category_viewer_ids,
+        "leaveApprovalLines": setting.leave_approval_lines,
     }
