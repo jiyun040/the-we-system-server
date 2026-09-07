@@ -882,6 +882,109 @@ class ApiFlowTests(TestCase):
             ApprovalDocument.Status.APPROVED,
         )
 
+    def test_half_day_is_always_recorded_as_point_five_days(self):
+        response = self.client.post(
+            "/api/v1/leave/requests",
+            data=json.dumps({
+                "type": "반차",
+                "startDate": "2026-09-03",
+                "endDate": "2026-09-03",
+                "days": 1,
+                "reason": "오후 반차",
+            }),
+            content_type="application/json",
+            **self.headers(self.login("edu_teacher")),
+        )
+
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(response.json()["days"], 0.5)
+        self.assertEqual(
+            LeaveRequest.objects.get(public_id=response.json()["id"]).days,
+            0.5,
+        )
+
+    def test_admin_can_update_and_delete_employee_leave(self):
+        created = self.client.post(
+            "/api/v1/leave/requests",
+            data=json.dumps({
+                "type": "연차",
+                "startDate": "2026-09-07",
+                "endDate": "2026-09-08",
+                "days": 2,
+                "reason": "수정 전",
+            }),
+            content_type="application/json",
+            **self.headers(self.login("edu_teacher")),
+        )
+        self.assertEqual(created.status_code, 201, created.content)
+        leave_id = created.json()["id"]
+        document_id = f"LEAVE-DOC-{leave_id}"
+        admin_headers = self.headers(self.login("edu_manager"))
+
+        updated = self.client.patch(
+            f"/api/v1/leave/requests/{leave_id}",
+            data=json.dumps({
+                "type": "반차",
+                "startDate": "2026-09-09",
+                "endDate": "2026-09-09",
+                "days": 1,
+                "reason": "수정 후",
+            }),
+            content_type="application/json",
+            **admin_headers,
+        )
+
+        self.assertEqual(updated.status_code, 200, updated.content)
+        self.assertEqual(updated.json()["type"], "반차")
+        self.assertEqual(updated.json()["days"], 0.5)
+        document = ApprovalDocument.objects.get(public_id=document_id)
+        self.assertEqual(document.title, "교육강사 반차 신청")
+        self.assertIn("사용 일수: 0.5일", document.content)
+        self.assertIn("신청 사유: 수정 후", document.content)
+
+        deleted = self.client.delete(
+            f"/api/v1/leave/requests/{leave_id}",
+            **admin_headers,
+        )
+
+        self.assertEqual(deleted.status_code, 200, deleted.content)
+        self.assertFalse(LeaveRequest.objects.filter(public_id=leave_id).exists())
+        self.assertFalse(ApprovalDocument.objects.filter(public_id=document_id).exists())
+
+    def test_regular_user_cannot_update_or_delete_leave(self):
+        leave = LeaveRequest.objects.create(
+            public_id="LEAVE-ADMIN-ONLY",
+            user=User.objects.get(username="edu_teacher"),
+            leave_type="연차",
+            start_date=date(2026, 9, 10),
+            end_date=date(2026, 9, 10),
+            days=1,
+            reason="권한 확인",
+        )
+        user_headers = self.headers(self.login("edu_teacher"))
+        payload = json.dumps({
+            "type": "반차",
+            "startDate": "2026-09-10",
+            "endDate": "2026-09-10",
+            "days": 0.5,
+            "reason": "권한 없음",
+        })
+
+        updated = self.client.patch(
+            f"/api/v1/leave/requests/{leave.public_id}",
+            data=payload,
+            content_type="application/json",
+            **user_headers,
+        )
+        deleted = self.client.delete(
+            f"/api/v1/leave/requests/{leave.public_id}",
+            **user_headers,
+        )
+
+        self.assertEqual(updated.status_code, 403)
+        self.assertEqual(deleted.status_code, 403)
+        self.assertTrue(LeaveRequest.objects.filter(pk=leave.pk).exists())
+
     def test_department_leave_approval_line_is_applied_in_order(self):
         teacher = User.objects.select_related("department").get(username="edu_teacher")
         setting = PortalSetting.load()

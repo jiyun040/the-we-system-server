@@ -38,6 +38,18 @@ def parse_days(value):
     return days
 
 
+def normalized_leave_days(leave_type, start, end, submitted_days):
+    days = parse_days(submitted_days)
+    if leave_type == "반차":
+        if start != end:
+            raise ApiError(
+                "반차는 시작일과 종료일이 같아야 합니다.",
+                fields={"endDate": "반차는 하루만 선택할 수 있습니다."},
+            )
+        return Decimal("0.5")
+    return days
+
+
 def next_leave_id():
     return f"LEAVE-{timezone.localdate():%y%m%d}-{uuid.uuid4().hex[:6].upper()}"
 
@@ -107,6 +119,29 @@ def approval_line_data(approvers):
     ]
 
 
+def update_linked_leave_document(leave):
+    document = ApprovalDocument.objects.filter(document_no=leave.public_id).first()
+    if document is None:
+        return
+    document.title = f"{leave.user.display_name} {leave.leave_type} 신청"
+    document.due_date = leave.start_date
+    document.effective_date = leave.start_date
+    document.content = (
+        f"휴가 종류: {leave.leave_type}\n"
+        f"기간: {leave.start_date} ~ {leave.end_date}\n"
+        f"사용 일수: {leave.days}일\n신청 사유: {leave.reason}"
+    )
+    document.save(
+        update_fields=[
+            "title",
+            "due_date",
+            "effective_date",
+            "content",
+            "updated_at",
+        ]
+    )
+
+
 def can_view_leave(user, leave):
     if user.is_staff or user.username == "ceo" or leave.user_id == user.pk:
         return True
@@ -167,15 +202,17 @@ def leave_requests(request):
     end = parse_date(data["endDate"], "endDate")
     if end < start:
         raise ApiError("종료일은 시작일보다 빠를 수 없습니다.", fields={"endDate": "날짜 범위를 확인해 주세요."})
+    leave_type = str(data["type"]).strip()
+    days = normalized_leave_days(leave_type, start, end, data["days"])
     approvers = [] if direct_entry else approval_users_for(target)
     approval_line = approval_line_data(approvers)
     leave = LeaveRequest.objects.create(
         public_id=next_leave_id(),
         user=target,
-        leave_type=str(data["type"]).strip(),
+        leave_type=leave_type,
         start_date=start,
         end_date=end,
-        days=parse_days(data["days"]),
+        days=days,
         reason=str(data.get("reason") or "").strip(),
         status=LeaveRequest.Status.APPROVED if direct_entry else LeaveRequest.Status.PENDING,
         ceo_status="완료" if direct_entry else "진행중",
@@ -240,6 +277,56 @@ def leave_requests(request):
             snapshot=f"{leave.leave_type} · {start} ~ {end}",
         )
     return JsonResponse(leave_data(queryset().get(pk=leave.pk)), status=201)
+
+
+@endpoint(["PATCH", "DELETE"], dev_fallback=True)
+@transaction.atomic
+def leave_request_detail(request, leave_id):
+    user = request.api_user
+    if not user.is_staff:
+        raise ApiError(
+            "관리자만 휴가 내역을 수정하거나 삭제할 수 있습니다.",
+            status=403,
+            code="permission_denied",
+        )
+    leave = queryset().filter(public_id=leave_id).first()
+    if leave is None:
+        raise ApiError("휴가 신청을 찾을 수 없습니다.", status=404, code="not_found")
+
+    if request.method == "DELETE":
+        ApprovalDocument.objects.filter(document_no=leave.public_id).delete()
+        leave.delete()
+        return JsonResponse({"deleted": True})
+
+    data = parse_json(request)
+    require_fields(data, ["type", "startDate", "endDate", "days"])
+    start = parse_date(data["startDate"], "startDate")
+    end = parse_date(data["endDate"], "endDate")
+    if end < start:
+        raise ApiError(
+            "종료일은 시작일보다 빠를 수 없습니다.",
+            fields={"endDate": "날짜 범위를 확인해 주세요."},
+        )
+    leave_type = str(data["type"]).strip()
+    if not leave_type:
+        raise ApiError("휴가 종류를 선택해 주세요.", fields={"type": "필수 항목입니다."})
+    leave.leave_type = leave_type
+    leave.start_date = start
+    leave.end_date = end
+    leave.days = normalized_leave_days(leave_type, start, end, data["days"])
+    leave.reason = str(data.get("reason") or "").strip()
+    leave.save(
+        update_fields=[
+            "leave_type",
+            "start_date",
+            "end_date",
+            "days",
+            "reason",
+            "updated_at",
+        ]
+    )
+    update_linked_leave_document(leave)
+    return JsonResponse(leave_data(queryset().get(pk=leave.pk)))
 
 
 @endpoint(["GET"], dev_fallback=True)

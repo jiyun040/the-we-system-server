@@ -39,6 +39,11 @@ urlpatterns = [
     path("approvals/<str:document_id>/reject", views_approvals.act_on_document, {"action": "reject"}, name="document-reject"),
     path("approvals/<str:document_id>/cancel", views_approvals.cancel_document, name="document-cancel"),
     path("leave/requests", views_leave.leave_requests, name="leave-requests"),
+    path(
+        "leave/requests/<str:leave_id>",
+        views_leave.leave_request_detail,
+        name="leave-request-detail",
+    ),
     path("leave/summary", views_leave.leave_summary, name="leave-summary"),
     path("leave/requests/<str:leave_id>/approve", views_leave.act_on_leave, {"action": "approve"}, name="leave-approve"),
     path("leave/requests/<str:leave_id>/reject", views_leave.act_on_leave, {"action": "reject"}, name="leave-reject"),
