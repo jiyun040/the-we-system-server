@@ -1,7 +1,7 @@
 import base64
 import binascii
 import uuid
-from datetime import date, timedelta
+from datetime import timedelta
 
 from django.db import transaction
 from django.db.models import Count, Q
@@ -18,19 +18,8 @@ from .models import (
     PortalSetting,
     User,
 )
+from .parsing import parse_iso_date
 from .serializers import document_data, form_data
-
-
-def parse_date(value, field, default=None):
-    if value in (None, "") and default is not None:
-        return default
-    try:
-        return date.fromisoformat(str(value))
-    except (TypeError, ValueError) as exc:
-        raise ApiError(
-            f"{field}은(는) YYYY-MM-DD 형식이어야 합니다.",
-            fields={field: "잘못된 날짜입니다."},
-        ) from exc
 
 
 def document_queryset():
@@ -249,9 +238,13 @@ def documents(request):
             department_name=user.department.name if user.department else "",
             form_template=form,
             form_name=form.name,
-            drafted_at=parse_date(data.get("draftedAt"), "draftedAt", today),
-            due_date=parse_date(data.get("dueDate"), "dueDate", today),
-            effective_date=parse_date(data.get("effectiveDate"), "effectiveDate", today),
+            drafted_at=parse_iso_date(
+                data.get("draftedAt"), "draftedAt", default=today
+            ),
+            due_date=parse_iso_date(data.get("dueDate"), "dueDate", default=today),
+            effective_date=parse_iso_date(
+                data.get("effectiveDate"), "effectiveDate", default=today
+            ),
             document_no="임시저장",
             cooperation_department=form.cooperation_department,
             agreement=form.agreement,
@@ -306,7 +299,7 @@ def document_detail(request, document_id):
             updated.append(internal)
     for external, internal in (("draftedAt", "drafted_at"), ("dueDate", "due_date"), ("effectiveDate", "effective_date")):
         if external in data:
-            setattr(document, internal, parse_date(data[external], external))
+            setattr(document, internal, parse_iso_date(data[external], external))
             updated.append(internal)
     with transaction.atomic():
         if updated:
@@ -352,8 +345,16 @@ def submit_document(request, document_id):
         document.received_request = True
         document.can_cancel = document.status != ApprovalDocument.Status.APPROVED
         document.can_edit = False
-        document.due_date = parse_date(data.get("dueDate"), "dueDate", timezone.localdate() + timedelta(days=3))
-        document.effective_date = parse_date(data.get("effectiveDate"), "effectiveDate", document.due_date)
+        document.due_date = parse_iso_date(
+            data.get("dueDate"),
+            "dueDate",
+            default=timezone.localdate() + timedelta(days=3),
+        )
+        document.effective_date = parse_iso_date(
+            data.get("effectiveDate"),
+            "effectiveDate",
+            default=document.due_date,
+        )
         set_progress(document)
         document.save()
         history(document, request.api_user, "결재 요청 상신")

@@ -1,5 +1,4 @@
 import uuid
-from datetime import date
 from decimal import Decimal, InvalidOperation
 
 from django.db import transaction
@@ -15,17 +14,8 @@ from .models import (
     PortalSetting,
     User,
 )
+from .parsing import parse_iso_date
 from .serializers import leave_data
-
-
-def parse_date(value, field):
-    try:
-        return date.fromisoformat(str(value))
-    except (TypeError, ValueError) as exc:
-        raise ApiError(
-            f"{field}은(는) YYYY-MM-DD 형식이어야 합니다.",
-            fields={field: "잘못된 날짜입니다."},
-        ) from exc
 
 
 def parse_days(value):
@@ -198,8 +188,8 @@ def leave_requests(request):
         if target is None:
             raise ApiError("직원을 찾을 수 없습니다.", status=404, code="user_not_found")
         direct_entry = True
-    start = parse_date(data["startDate"], "startDate")
-    end = parse_date(data["endDate"], "endDate")
+    start = parse_iso_date(data["startDate"], "startDate")
+    end = parse_iso_date(data["endDate"], "endDate")
     if end < start:
         raise ApiError("종료일은 시작일보다 빠를 수 없습니다.", fields={"endDate": "날짜 범위를 확인해 주세요."})
     leave_type = str(data["type"]).strip()
@@ -300,8 +290,8 @@ def leave_request_detail(request, leave_id):
 
     data = parse_json(request)
     require_fields(data, ["type", "startDate", "endDate", "days"])
-    start = parse_date(data["startDate"], "startDate")
-    end = parse_date(data["endDate"], "endDate")
+    start = parse_iso_date(data["startDate"], "startDate")
+    end = parse_iso_date(data["endDate"], "endDate")
     if end < start:
         raise ApiError(
             "종료일은 시작일보다 빠를 수 없습니다.",
