@@ -177,7 +177,7 @@ class ApprovalDocument(models.Model):
     can_cancel = models.BooleanField(default=False)
     can_reuse = models.BooleanField(default=True)
     can_edit = models.BooleanField(default=True)
-    department_visible = models.BooleanField(default=True)
+    department_visible = models.BooleanField(default=False)
     receivers = models.JSONField(default=list, blank=True)
     references = models.JSONField(default=list, blank=True)
     viewers = models.JSONField(default=list, blank=True)
@@ -253,6 +253,7 @@ class LeaveRequest(models.Model):
     ceo_status = models.CharField(max_length=20, default="진행중")
     approval_line = models.JSONField(default=list, blank=True)
     rejected_by = models.CharField(max_length=100, blank=True)
+    rejection_reason = models.CharField(max_length=200, blank=True)
     direct_entry = models.BooleanField(default=False)
     registered_by = models.ForeignKey(
         User, null=True, blank=True, on_delete=models.SET_NULL, related_name="registered_leave_requests"
@@ -279,6 +280,41 @@ class Notice(models.Model):
 
     class Meta:
         ordering = ["-is_pinned", "-created_at", "-id"]
+
+
+class SharedCalendarEvent(models.Model):
+    title = models.CharField(max_length=200)
+    event_date = models.DateField()
+    time = models.CharField(max_length=5, default="09:00")
+    place = models.CharField(max_length=200, blank=True)
+    color_key = models.CharField(max_length=20, default="blue")
+    author = models.ForeignKey(User, on_delete=models.PROTECT, related_name="calendar_events")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["event_date", "time", "id"]
+
+
+class BoardPost(models.Model):
+    title = models.CharField(max_length=200)
+    content = models.TextField()
+    department = models.ForeignKey(
+        Department, null=True, blank=True, on_delete=models.SET_NULL, related_name="board_posts"
+    )
+    author = models.ForeignKey(User, on_delete=models.PROTECT, related_name="board_posts")
+    attachments = models.JSONField(default=list, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+
+class DevicePushToken(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="push_tokens")
+    token = models.TextField(unique=True)
+    platform = models.CharField(max_length=20, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
 
 class PortalSetting(models.Model):

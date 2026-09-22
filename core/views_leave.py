@@ -16,6 +16,7 @@ from .models import (
 )
 from .parsing import parse_iso_date
 from .serializers import leave_data
+from .views_push import notify_users
 
 
 def parse_days(value):
@@ -266,6 +267,8 @@ def leave_requests(request):
             description="휴가 신청 결재 요청",
             snapshot=f"{leave.leave_type} · {start} ~ {end}",
         )
+    if approvers:
+        notify_users([approvers[0].pk], "새 휴가 신청", "앱에서 휴가 신청을 확인해 주세요.", route="/leave")
     return JsonResponse(leave_data(queryset().get(pk=leave.pk)), status=201)
 
 
@@ -374,6 +377,11 @@ def leave_summary(request):
 @endpoint(["POST"], dev_fallback=True)
 def act_on_leave(request, leave_id, action):
     data = parse_json(request)
+    rejection_reason = str(data.get("rejectionReason") or data.get("reason") or "").strip()
+    if action == "reject" and not rejection_reason:
+        raise ApiError("반려 사유를 입력해 주세요.", fields={"rejectionReason": "필수 항목입니다."})
+    if len(rejection_reason) > 200:
+        raise ApiError("반려 사유는 200자 이하로 입력해 주세요.")
     with transaction.atomic():
         leave = LeaveRequest.objects.select_for_update().filter(public_id=leave_id).first()
         if leave is None:
@@ -386,7 +394,7 @@ def act_on_leave(request, leave_id, action):
             None,
         )
         if current_index is not None:
-            if line[current_index].get("userId") != request.api_user.username:
+            if line[current_index].get("userId") != request.api_user.username and not request.api_user.is_staff:
                 raise ApiError(
                     "현재 순서의 휴가 결재자만 처리할 수 있습니다.",
                     status=403,
@@ -408,15 +416,14 @@ def act_on_leave(request, leave_id, action):
             )
             leave.ceo_status = "완료" if final_approval else "진행중"
             leave.rejected_by = ""
+            leave.rejection_reason = ""
         else:
             if current_index is not None:
                 line[current_index]["status"] = "반려"
             leave.status = LeaveRequest.Status.REJECTED
             leave.ceo_status = "반려"
             leave.rejected_by = request.api_user.display_name
-            reason = str(data.get("reason") or "").strip()
-            if reason:
-                leave.reason = f"{leave.reason}\n반려 사유: {reason}".strip()
+            leave.rejection_reason = rejection_reason
         leave.approval_line = line
         leave.save()
         document = ApprovalDocument.objects.filter(
@@ -448,6 +455,16 @@ def act_on_leave(request, leave_id, action):
                 if next_step:
                     next_step.status = "진행중"
                     next_step.save(update_fields=["status"])
+    recipients = [leave.user_id]
+    if action == "approve" and not final_approval and current_index is not None:
+        next_user = User.objects.filter(username=line[current_index + 1].get("userId")).first()
+        if next_user:
+            recipients.append(next_user.pk)
+    if action != "approve" and line:
+        final_user = User.objects.filter(username=line[-1].get("userId")).first()
+        if final_user:
+            recipients.append(final_user.pk)
+    notify_users(recipients, "휴가 승인" if action == "approve" else "휴가 반려", "앱에서 처리 결과를 확인해 주세요.", route="/leave")
     return JsonResponse(leave_data(queryset().get(pk=leave.pk)))
 
 

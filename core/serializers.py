@@ -137,6 +137,7 @@ def leave_data(request):
         "ceoStatus": request.ceo_status,
         "approvalLine": request.approval_line,
         "rejectedBy": request.rejected_by,
+        "rejectionReason": request.rejection_reason,
         "directEntry": request.direct_entry,
         "registeredBy": request.registered_by.display_name if request.registered_by else "",
         "acknowledged": request.acknowledged,

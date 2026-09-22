@@ -20,6 +20,7 @@ from .models import (
 )
 from .parsing import parse_iso_date
 from .serializers import document_data, form_data
+from .views_push import notify_users
 
 
 def document_queryset():
@@ -250,7 +251,7 @@ def documents(request):
             agreement=form.agreement,
             content=str(data.get("content") or form.default_content),
             urgent=bool(data.get("urgent", False)),
-            department_visible=bool(data.get("departmentVisible", True)),
+            department_visible=False,
             receivers=data.get("receivers", form.receivers),
             references=data.get("references", form.references),
             viewers=data.get("viewers", form.viewers),
@@ -287,7 +288,7 @@ def document_detail(request, document_id):
     data = parse_json(request)
     simple_fields = {
         "title": "title", "content": "content", "urgent": "urgent",
-        "departmentVisible": "department_visible", "receivers": "receivers",
+        "receivers": "receivers",
         "references": "references", "viewers": "viewers",
         "publicReceivers": "public_receivers", "linkedDocuments": "linked_documents",
         "formFields": "form_fields", "lineItems": "line_items",
@@ -297,6 +298,9 @@ def document_detail(request, document_id):
         if external in data:
             setattr(document, internal, data[external])
             updated.append(internal)
+    if document.department_visible:
+        document.department_visible = False
+        updated.append("department_visible")
     for external, internal in (("draftedAt", "drafted_at"), ("dueDate", "due_date"), ("effectiveDate", "effective_date")):
         if external in data:
             setattr(document, internal, parse_iso_date(data[external], external))
@@ -358,6 +362,8 @@ def submit_document(request, document_id):
         set_progress(document)
         document.save()
         history(document, request.api_user, "결재 요청 상신")
+        if next_step and next_step.approver_id:
+            notify_users([next_step.approver_id], "새 결재 요청", "앱에서 결재 문서를 확인해 주세요.")
     return JsonResponse(document_data(document_queryset().get(pk=document.pk)))
 
 
@@ -399,6 +405,10 @@ def act_on_document(request, document_id, action):
         document.save(update_fields=["status", "can_edit", "can_cancel", "progress", "updated_at"])
         verb = "반려" if reject else "승인"
         history(document, request.api_user, f"{verb}: {opinion}" if opinion else verb)
+        recipients = [document.drafter_id]
+        if not reject and active_index + 1 < len(steps) and steps[active_index + 1].approver_id:
+            recipients.append(steps[active_index + 1].approver_id)
+        notify_users(recipients, f"결재 {verb}", "앱에서 처리 결과를 확인해 주세요.")
     return JsonResponse(document_data(document_queryset().get(pk=document.pk)))
 
 

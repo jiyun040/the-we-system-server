@@ -41,6 +41,81 @@ class ApiFlowTests(TestCase):
     def headers(self, token):
         return {"HTTP_AUTHORIZATION": f"Bearer {token}"}
 
+    def test_admin_can_decide_out_of_turn_leave_and_share_rejection_reason(self):
+        teacher = User.objects.get(username="edu_teacher")
+        setting = PortalSetting.load()
+        setting.leave_approval_lines = {teacher.department.name: ["edu_manager", "ceo"]}
+        setting.save(update_fields=["leave_approval_lines", "updated_at"])
+        created = self.client.post(
+            "/api/v1/leave/requests",
+            data=json.dumps({
+                "type": "연차", "startDate": "2026-10-06", "endDate": "2026-10-06",
+                "days": 1, "reason": "개인 일정",
+            }),
+            content_type="application/json",
+            **self.headers(self.login("edu_teacher")),
+        )
+        self.assertEqual(created.status_code, 201, created.content)
+        leave_id = created.json()["id"]
+        admin = User.objects.create_user(
+            username="leave_admin", password="1234", first_name="관리자",
+            department=teacher.department, is_staff=True,
+        )
+        admin_token = self.login(admin.username)
+        rejected = self.client.post(
+            f"/api/v1/leave/requests/{leave_id}/reject",
+            data=json.dumps({"rejectionReason": "일정 조정 필요"}),
+            content_type="application/json",
+            **self.headers(admin_token),
+        )
+        self.assertEqual(rejected.status_code, 200, rejected.content)
+        self.assertEqual(rejected.json()["rejectionReason"], "일정 조정 필요")
+        final_bootstrap = self.client.get(
+            "/api/v1/bootstrap", **self.headers(self.login("ceo"))
+        ).json()
+        final_leave = next(item for item in final_bootstrap["leaveRequests"] if item["id"] == leave_id)
+        self.assertEqual(final_leave["rejectionReason"], "일정 조정 필요")
+        self.assertEqual(final_leave["reason"], "개인 일정")
+        another = self.client.post(
+            "/api/v1/leave/requests",
+            data=json.dumps({
+                "type": "반차", "startDate": "2026-10-08", "endDate": "2026-10-08",
+                "days": 0.5, "reason": "개인 일정",
+            }),
+            content_type="application/json",
+            **self.headers(self.login("edu_teacher")),
+        )
+        self.assertEqual(another.status_code, 201, another.content)
+        approved = self.client.post(
+            f"/api/v1/leave/requests/{another.json()['id']}/approve",
+            data="{}", content_type="application/json", **self.headers(admin_token),
+        )
+        self.assertEqual(approved.status_code, 200, approved.content)
+        self.assertEqual(approved.json()["approvalLine"][1]["status"], "진행중")
+
+    def test_shared_calendar_and_department_board_are_visible_to_other_user(self):
+        author_token = self.login("edu_teacher")
+        event = self.client.post(
+            "/api/v1/calendar/events",
+            data=json.dumps({"title": "회의", "date": "2026-10-07", "time": "10:00"}),
+            content_type="application/json",
+            **self.headers(author_token),
+        )
+        self.assertEqual(event.status_code, 201, event.content)
+        department = User.objects.get(username="edu_teacher").department.name
+        post = self.client.post(
+            "/api/v1/board/posts",
+            data=json.dumps({"title": "자료 공유", "content": "참고해 주세요", "department": department}),
+            content_type="application/json",
+            **self.headers(author_token),
+        )
+        self.assertEqual(post.status_code, 201, post.content)
+        reader_token = self.login("ceo")
+        events = self.client.get("/api/v1/calendar/events", **self.headers(reader_token)).json()["events"]
+        posts = self.client.get("/api/v1/board/posts", **self.headers(reader_token)).json()["posts"]
+        self.assertIn(event.json()["id"], {item["id"] for item in events})
+        self.assertIn(post.json()["id"], {item["id"] for item in posts})
+
     def test_health_and_current_flutter_compatibility_endpoint(self):
         self.assertEqual(self.client.get("/api/v1/health").json(), {"status": "ok"})
         response = self.client.get("/approvals/dashboard")

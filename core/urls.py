@@ -5,15 +5,22 @@ from . import (
     views_approvals,
     views_auth,
     views_bootstrap,
+    views_collaboration,
     views_forms,
     views_leave,
     views_notices,
     views_org,
+    views_push,
 )
 
 urlpatterns = [
     path("health", views.health, name="health"),
     path("bootstrap", views_bootstrap.bootstrap, name="bootstrap"),
+    path("calendar/events", views_collaboration.calendar_events, name="calendar-events"),
+    path("calendar/events/<int:event_id>", views_collaboration.calendar_event_detail, name="calendar-event-detail"),
+    path("board/posts", views_collaboration.board_posts, name="board-posts"),
+    path("board/posts/<int:post_id>", views_collaboration.board_post_detail, name="board-post-detail"),
+    path("notifications/devices", views_push.device_tokens, name="notification-devices"),
     path("auth/login", views_auth.login, name="login"),
     path("auth/register", views_auth.register, name="register"),
     path("auth/logout", views_auth.logout, name="logout"),
