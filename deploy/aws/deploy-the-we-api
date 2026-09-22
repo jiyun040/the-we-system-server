@@ -15,7 +15,8 @@ git fetch --prune origin main
 
 current_commit="$(git rev-parse HEAD)"
 target_commit="$(git rev-parse FETCH_HEAD)"
-if [[ "$current_commit" == "$target_commit" ]]; then
+deployed_commit="$(cat "$APP_DIR/.last-deployed-commit" 2>/dev/null || true)"
+if [[ "$current_commit" == "$target_commit" && "$deployed_commit" == "$target_commit" ]]; then
   echo "Already deployed: $current_commit"
   exit 0
 fi
@@ -25,7 +26,9 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
   exit 1
 fi
 
-git merge --ff-only "$target_commit"
+if [[ "$current_commit" != "$target_commit" ]]; then
+  git merge --ff-only "$target_commit"
+fi
 "$PYTHON" -m pip install --disable-pip-version-check -r requirements.txt
 "$PYTHON" manage.py migrate --noinput
 "$PYTHON" manage.py collectstatic --noinput
@@ -40,3 +43,5 @@ curl \
   --retry 5 \
   --retry-delay 2 \
   http://127.0.0.1:8000/api/v1/health
+
+git rev-parse HEAD > "$APP_DIR/.last-deployed-commit"

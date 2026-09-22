@@ -312,7 +312,8 @@ class BoardPost(models.Model):
 
 class DevicePushToken(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="push_tokens")
-    token = models.TextField(unique=True)
+    token = models.TextField()
+    token_hash = models.CharField(max_length=64, unique=True)
     platform = models.CharField(max_length=20, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 

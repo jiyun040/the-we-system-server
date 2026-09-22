@@ -1,3 +1,4 @@
+import hashlib
 import logging
 import os
 
@@ -17,12 +18,13 @@ def device_tokens(request):
     token = str(data.get("token") or "").strip()
     if not token or len(token) > 4096:
         raise ApiError("알림 기기 토큰을 확인해 주세요.")
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
     if request.method == "DELETE":
-        DevicePushToken.objects.filter(user=request.api_user, token=token).delete()
+        DevicePushToken.objects.filter(user=request.api_user, token_hash=token_hash).delete()
         return JsonResponse({"deleted": True})
     DevicePushToken.objects.update_or_create(
-        token=token,
-        defaults={"user": request.api_user, "platform": str(data.get("platform") or "")[:20]},
+        token_hash=token_hash,
+        defaults={"token": token, "user": request.api_user, "platform": str(data.get("platform") or "")[:20]},
     )
     return JsonResponse({"registered": True})
 
