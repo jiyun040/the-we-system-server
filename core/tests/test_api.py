@@ -102,6 +102,17 @@ class ApiFlowTests(TestCase):
             **self.headers(author_token),
         )
         self.assertEqual(event.status_code, 201, event.content)
+        super_admin = User.objects.create_user(
+            username="admin", password="1234", first_name="슈퍼관리자"
+        )
+        updated_event = self.client.patch(
+            f"/api/v1/calendar/events/{event.json()['id']}",
+            data=json.dumps({"title": "관리자 수정 회의"}),
+            content_type="application/json",
+            **self.headers(self.login(super_admin.username)),
+        )
+        self.assertEqual(updated_event.status_code, 200, updated_event.content)
+        self.assertEqual(updated_event.json()["title"], "관리자 수정 회의")
         department = User.objects.get(username="edu_teacher").department.name
         post = self.client.post(
             "/api/v1/board/posts",
@@ -977,6 +988,23 @@ class ApiFlowTests(TestCase):
             LeaveRequest.objects.get(public_id=response.json()["id"]).days,
             0.5,
         )
+
+    def test_leave_days_exclude_weekends(self):
+        response = self.client.post(
+            "/api/v1/leave/requests",
+            data=json.dumps({
+                "type": "연차",
+                "startDate": "2026-09-04",
+                "endDate": "2026-09-07",
+                "days": 4,
+                "reason": "주말 포함 휴가",
+            }),
+            content_type="application/json",
+            **self.headers(self.login("edu_teacher")),
+        )
+
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(response.json()["days"], 2)
 
     def test_admin_can_update_and_delete_employee_leave(self):
         created = self.client.post(

@@ -1,4 +1,5 @@
 import uuid
+from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 
 from django.db import transaction
@@ -30,7 +31,7 @@ def parse_days(value):
 
 
 def normalized_leave_days(leave_type, start, end, submitted_days):
-    days = parse_days(submitted_days)
+    parse_days(submitted_days)
     if leave_type == "반차":
         if start != end:
             raise ApiError(
@@ -38,7 +39,17 @@ def normalized_leave_days(leave_type, start, end, submitted_days):
                 fields={"endDate": "반차는 하루만 선택할 수 있습니다."},
             )
         return Decimal("0.5")
-    return days
+    workdays = sum(
+        1
+        for offset in range((end - start).days + 1)
+        if (start + timedelta(days=offset)).weekday() < 5
+    )
+    if workdays == 0:
+        raise ApiError(
+            "휴가는 평일을 포함해 선택해 주세요.",
+            fields={"endDate": "주말만으로는 휴가를 신청할 수 없습니다."},
+        )
+    return Decimal(workdays)
 
 
 def next_leave_id():

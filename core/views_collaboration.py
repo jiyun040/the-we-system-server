@@ -21,6 +21,15 @@ def calendar_data(event):
     }
 
 
+def can_manage_calendar_event(user, event):
+    return (
+        event.author_id == user.pk
+        or user.is_staff
+        or user.is_superuser
+        or user.username == "admin"
+    )
+
+
 @endpoint(["GET", "POST"])
 def calendar_events(request):
     if request.method == "GET":
@@ -60,8 +69,8 @@ def calendar_event_detail(request, event_id):
     event = SharedCalendarEvent.objects.filter(pk=event_id).first()
     if event is None:
         raise ApiError("일정을 찾을 수 없습니다.", status=404, code="not_found")
-    if event.author_id != request.api_user.pk and not request.api_user.is_staff:
-        raise ApiError("작성자만 일정을 수정할 수 있습니다.", status=403, code="permission_denied")
+    if not can_manage_calendar_event(request.api_user, event):
+        raise ApiError("작성자 또는 관리자만 일정을 수정할 수 있습니다.", status=403, code="permission_denied")
     if request.method == "DELETE":
         event.delete()
         return HttpResponse(status=204)
