@@ -105,11 +105,16 @@ class ApiFlowTests(TestCase):
         super_admin = User.objects.create_user(
             username="admin", password="1234", first_name="슈퍼관리자"
         )
+        super_admin_token = self.login(super_admin.username)
+        self.assertTrue(
+            self.client.get("/api/v1/auth/me", **self.headers(super_admin_token))
+            .json()["user"]["isAdmin"]
+        )
         updated_event = self.client.patch(
             f"/api/v1/calendar/events/{event.json()['id']}",
             data=json.dumps({"title": "관리자 수정 회의"}),
             content_type="application/json",
-            **self.headers(self.login(super_admin.username)),
+            **self.headers(super_admin_token),
         )
         self.assertEqual(updated_event.status_code, 200, updated_event.content)
         self.assertEqual(updated_event.json()["title"], "관리자 수정 회의")

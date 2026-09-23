@@ -54,12 +54,14 @@ def ensure_designated_admin_access(user):
         return user
 
     department_name = user.department.name if user.department else ""
-    if not matches_designated_admin_profile(
+    is_admin_account = user.username.strip().lower() == "admin"
+    is_designated_admin = matches_designated_admin_profile(
         user.username,
         user.first_name,
         department_name,
         user.position,
-    ):
+    )
+    if not is_admin_account and not is_designated_admin:
         return user
 
     user_model = get_user_model()
