@@ -458,6 +458,28 @@ class ApiFlowTests(TestCase):
         )
         self.assertTrue(account["isAdmin"])
 
+    def test_only_designated_kim_hyomin_admin_can_manage_notices(self):
+        department, _ = Department.objects.get_or_create(name="경리부")
+        user = User.objects.create_user(
+            username="we81049",
+            password="safe-password-1234",
+            first_name="김효민",
+            department=department,
+            position="대리",
+            is_staff=False,
+        )
+
+        token = self.login(user.username, "safe-password-1234")
+        created = self.client.post(
+            "/api/v1/notices",
+            data=json.dumps({"title": "관리자 공지", "content": "권한 확인"}),
+            content_type="application/json",
+            **self.headers(token),
+        )
+
+        self.assertEqual(created.status_code, 201, created.content)
+        self.assertTrue(self.client.get("/api/v1/auth/me", **self.headers(token)).json()["user"]["canChangeAdminOtp"])
+
     def test_bootstrap_restores_remote_application_state(self):
         token = self.login()
         response = self.client.get("/api/v1/bootstrap", **self.headers(token))

@@ -4,7 +4,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import check_password
 
 
-DESIGNATED_ADMIN_USERNAME = "we81048"
+DESIGNATED_ADMIN_USERNAME = "we81049"
 DESIGNATED_ADMIN_NAME = "김효민"
 DESIGNATED_ADMIN_DEPARTMENT = "경리부"
 DESIGNATED_ADMIN_POSITION = "대리"
