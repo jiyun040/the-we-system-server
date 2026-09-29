@@ -30,7 +30,7 @@ def parse_days(value):
     return days
 
 
-def normalized_leave_days(leave_type, start, end, submitted_days):
+def normalized_leave_days(leave_type, start, end, submitted_days, target):
     parse_days(submitted_days)
     if leave_type == "반차":
         if start != end:
@@ -39,10 +39,12 @@ def normalized_leave_days(leave_type, start, end, submitted_days):
                 fields={"endDate": "반차는 하루만 선택할 수 있습니다."},
             )
         return Decimal("0.5")
+    department_name = target.department.name if target.department else ""
+    includes_saturday = "현장" in "".join(department_name.split())
     workdays = sum(
         1
         for offset in range((end - start).days + 1)
-        if (start + timedelta(days=offset)).weekday() < 5
+        if (start + timedelta(days=offset)).weekday() < (6 if includes_saturday else 5)
     )
     if workdays == 0:
         raise ApiError(
@@ -205,7 +207,7 @@ def leave_requests(request):
     if end < start:
         raise ApiError("종료일은 시작일보다 빠를 수 없습니다.", fields={"endDate": "날짜 범위를 확인해 주세요."})
     leave_type = str(data["type"]).strip()
-    days = normalized_leave_days(leave_type, start, end, data["days"])
+    days = normalized_leave_days(leave_type, start, end, data["days"], target)
     approvers = [] if direct_entry else approval_users_for(target)
     approval_line = approval_line_data(approvers)
     leave = LeaveRequest.objects.create(
@@ -317,7 +319,9 @@ def leave_request_detail(request, leave_id):
     leave.leave_type = leave_type
     leave.start_date = start
     leave.end_date = end
-    leave.days = normalized_leave_days(leave_type, start, end, data["days"])
+    leave.days = normalized_leave_days(
+        leave_type, start, end, data["days"], leave.user
+    )
     leave.reason = str(data.get("reason") or "").strip()
     leave.save(
         update_fields=[

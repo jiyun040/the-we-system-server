@@ -1033,6 +1033,52 @@ class ApiFlowTests(TestCase):
         self.assertEqual(response.status_code, 201, response.content)
         self.assertEqual(response.json()["days"], 2)
 
+    def test_field_operations_team_can_request_saturday_only(self):
+        field_department, _ = Department.objects.get_or_create(name="현장운영팀")
+        employee = User.objects.get(username="edu_teacher")
+        employee.department = field_department
+        employee.save(update_fields=["department"])
+
+        response = self.client.post(
+            "/api/v1/leave/requests",
+            data=json.dumps({
+                "type": "연차",
+                "startDate": "2026-09-05",
+                "endDate": "2026-09-05",
+                "days": 1,
+                "reason": "토요일 현장 휴가",
+            }),
+            content_type="application/json",
+            **self.headers(self.login("edu_teacher")),
+        )
+
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(response.json()["days"], 1)
+
+    def test_admin_can_register_saturday_only_for_field_operations_team(self):
+        field_department, _ = Department.objects.get_or_create(name="현장운영팀")
+        employee = User.objects.get(username="edu_teacher")
+        employee.department = field_department
+        employee.save(update_fields=["department"])
+
+        response = self.client.post(
+            "/api/v1/leave/requests",
+            data=json.dumps({
+                "userId": "edu_teacher",
+                "type": "연차",
+                "startDate": "2026-09-05",
+                "endDate": "2026-09-05",
+                "days": 1,
+                "reason": "관리자 토요일 직접 등록",
+                "directEntry": True,
+            }),
+            content_type="application/json",
+            **self.headers(self.login()),
+        )
+
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(response.json()["days"], 1)
+
     def test_admin_can_update_and_delete_employee_leave(self):
         created = self.client.post(
             "/api/v1/leave/requests",
