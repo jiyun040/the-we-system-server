@@ -370,8 +370,14 @@ def submit_document(request, document_id):
 @endpoint(["POST"], dev_fallback=True)
 def act_on_document(request, document_id, action):
     data = parse_json(request)
-    opinion = str(data.get("opinion") or "").strip()
     reject = action == "reject" or str(data.get("action") or "") == "반려"
+    decision_comment = str(
+        data.get("rejectionReason") if reject else data.get("opinion") or ""
+    ).strip()
+    if reject and not decision_comment:
+        raise ApiError("반려 사유를 입력해 주세요.", fields={"rejectionReason": "필수 항목입니다."})
+    if len(decision_comment) > 200:
+        raise ApiError("반려 사유는 200자 이하로 입력해 주세요." if reject else "의견은 200자 이하로 입력해 주세요.")
     with transaction.atomic():
         document = ApprovalDocument.objects.select_for_update().filter(public_id=document_id).first()
         if document is None:
@@ -404,7 +410,7 @@ def act_on_document(request, document_id, action):
         set_progress(document)
         document.save(update_fields=["status", "can_edit", "can_cancel", "progress", "updated_at"])
         verb = "반려" if reject else "승인"
-        history(document, request.api_user, f"{verb}: {opinion}" if opinion else verb)
+        history(document, request.api_user, f"{verb}: {decision_comment}" if decision_comment else verb)
         recipients = [document.drafter_id]
         if not reject and active_index + 1 < len(steps) and steps[active_index + 1].approver_id:
             recipients.append(steps[active_index + 1].approver_id)

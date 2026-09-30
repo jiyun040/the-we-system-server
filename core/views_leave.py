@@ -392,7 +392,7 @@ def leave_summary(request):
 @endpoint(["POST"], dev_fallback=True)
 def act_on_leave(request, leave_id, action):
     data = parse_json(request)
-    rejection_reason = str(data.get("rejectionReason") or data.get("reason") or "").strip()
+    rejection_reason = str(data.get("rejectionReason") or "").strip()
     if action == "reject" and not rejection_reason:
         raise ApiError("반려 사유를 입력해 주세요.", fields={"rejectionReason": "필수 항목입니다."})
     if len(rejection_reason) > 200:
