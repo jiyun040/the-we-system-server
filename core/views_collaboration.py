@@ -1,4 +1,5 @@
 import base64
+from datetime import timedelta
 
 from django.http import HttpResponse, JsonResponse
 
@@ -30,15 +31,31 @@ def can_manage_calendar_event(user, event):
     )
 
 
+def leave_calendar_dates(leave):
+    """Return the workdays shown for an approved leave on the shared calendar."""
+    field_team = bool(leave.user.department and leave.user.department.name == "현장팀")
+    dates = []
+    current = leave.start_date
+    while current <= leave.end_date:
+        if current.weekday() < 5 or (field_team and current.weekday() == 5):
+            dates.append(current.isoformat())
+        current += timedelta(days=1)
+    return dates
+
+
 @endpoint(["GET", "POST"])
 def calendar_events(request):
     if request.method == "GET":
         events = [calendar_data(event) for event in SharedCalendarEvent.objects.select_related("author")]
-        for leave in LeaveRequest.objects.select_related("user").filter(status=LeaveRequest.Status.APPROVED):
+        for leave in LeaveRequest.objects.select_related("user", "user__department").filter(status=LeaveRequest.Status.APPROVED):
+            visible_dates = leave_calendar_dates(leave)
+            if not visible_dates:
+                continue
             events.append({
                 "id": f"leave-{leave.public_id}",
                 "date": leave.start_date.isoformat(),
                 "endDate": leave.end_date.isoformat(),
+                "visibleDates": visible_dates,
                 "title": f"{leave.user.display_name} {leave.leave_type}",
                 "time": "",
                 "place": "",

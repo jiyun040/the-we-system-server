@@ -21,6 +21,7 @@ from core.models import (
     PortalSetting,
     User,
 )
+from core.views_collaboration import leave_calendar_dates
 
 
 @override_settings(DEV_ALLOW_ANONYMOUS=True, DEV_DEFAULT_USERNAME="edu_manager")
@@ -131,6 +132,33 @@ class ApiFlowTests(TestCase):
         posts = self.client.get("/api/v1/board/posts", **self.headers(reader_token)).json()["posts"]
         self.assertIn(event.json()["id"], {item["id"] for item in events})
         self.assertIn(post.json()["id"], {item["id"] for item in posts})
+
+    def test_shared_calendar_leave_dates_follow_department_weekend_rules(self):
+        field_department = Department.objects.create(name="현장팀")
+        office_department = Department.objects.create(name="사무팀")
+        field_user = User.objects.create_user(
+            username="field-calendar", password="1234", first_name="현장직원",
+            department=field_department,
+        )
+        office_user = User.objects.create_user(
+            username="office-calendar", password="1234", first_name="사무직원",
+            department=office_department,
+        )
+        field_leave = LeaveRequest.objects.create(
+            public_id="FIELD-CALENDAR-WEEKEND",
+            user=field_user, leave_type="연차", start_date=date(2026, 9, 4),
+            end_date=date(2026, 9, 6), days=2, status=LeaveRequest.Status.APPROVED,
+        )
+        office_leave = LeaveRequest.objects.create(
+            public_id="OFFICE-CALENDAR-WEEKEND",
+            user=office_user, leave_type="연차", start_date=date(2026, 9, 4),
+            end_date=date(2026, 9, 6), days=1, status=LeaveRequest.Status.APPROVED,
+        )
+
+        self.assertEqual(
+            leave_calendar_dates(field_leave), ["2026-09-04", "2026-09-05"]
+        )
+        self.assertEqual(leave_calendar_dates(office_leave), ["2026-09-04"])
 
     def test_health_and_current_flutter_compatibility_endpoint(self):
         self.assertEqual(self.client.get("/api/v1/health").json(), {"status": "ok"})
