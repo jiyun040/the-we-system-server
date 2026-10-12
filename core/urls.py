@@ -11,10 +11,14 @@ from . import (
     views_notices,
     views_org,
     views_push,
+    views_sales,
 )
 
 urlpatterns = [
     path("health", views.health, name="health"),
+    path("sales/ledger", views_sales.ledger, name="sales-ledger"),
+    path("sales/ledger/<int:record_id>", views_sales.ledger_detail, name="sales-ledger-detail"),
+    path("sales/statements", views_sales.statements, name="sales-statements"),
     path("bootstrap", views_bootstrap.bootstrap, name="bootstrap"),
     path("calendar/events", views_collaboration.calendar_events, name="calendar-events"),
     path("calendar/events/<int:event_id>", views_collaboration.calendar_event_detail, name="calendar-event-detail"),

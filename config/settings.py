@@ -1,6 +1,15 @@
 import os
 from pathlib import Path
 
+# PyMySQL is a pure-Python MySQL driver and works on local macOS development
+# machines without the native mysqlclient build toolchain.
+try:
+    import pymysql
+except ImportError:
+    pymysql = None
+else:
+    pymysql.install_as_MySQLdb()
+
 from django.core.exceptions import ImproperlyConfigured
 
 
@@ -110,10 +119,33 @@ elif DB_ENGINE == "sqlite":
         "default": {
             "ENGINE": "django.db.backends.sqlite3",
             "NAME": Path(os.getenv("DATABASE_PATH", BASE_DIR / "db.sqlite3")),
+            "OPTIONS": {"timeout": 30},
         }
     }
 else:
     raise ImproperlyConfigured("DB_ENGINE은 sqlite 또는 mysql이어야 합니다.")
+
+# PDAM is deliberately configured as a second *database* connection.  The ERP
+# never calls a PDAM HTTP API.  PDAM_SALES_QUERY must be a read-only SELECT that
+# returns the documented aliases: source_id, project_name, contractor, partner,
+# elevator, start_date, end_date, status, category and optionally updated_at.
+PDAM_SALES_QUERY = os.getenv("PDAM_SALES_QUERY", "").strip()
+PDAM_DB_NAME = os.getenv("PDAM_DB_NAME", "").strip()
+PDAM_DB_USER = os.getenv("PDAM_DB_USER", "").strip()
+PDAM_DB_PASSWORD = os.getenv("PDAM_DB_PASSWORD", "")
+PDAM_DB_HOST = os.getenv("PDAM_DB_HOST", "").strip()
+PDAM_DB_PORT = int(os.getenv("PDAM_DB_PORT", "3306"))
+if PDAM_DB_NAME:
+    DATABASES["pdam"] = {
+        "ENGINE": "django.db.backends.mysql",
+        "NAME": PDAM_DB_NAME,
+        "USER": PDAM_DB_USER,
+        "PASSWORD": PDAM_DB_PASSWORD,
+        "HOST": PDAM_DB_HOST,
+        "PORT": PDAM_DB_PORT,
+        "CONN_MAX_AGE": int(os.getenv("PDAM_DB_CONN_MAX_AGE", "60")),
+        "OPTIONS": {"charset": "utf8mb4", "init_command": "SET sql_mode='STRICT_TRANS_TABLES'"},
+    }
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},

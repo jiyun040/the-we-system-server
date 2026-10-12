@@ -4,7 +4,7 @@ from datetime import date, timedelta
 
 from django.contrib.auth.hashers import make_password
 from django.contrib.auth.models import AbstractUser, UserManager
-from django.db import models
+from django.db import OperationalError, models
 from django.utils import timezone
 
 
@@ -116,7 +116,12 @@ class ApiToken(models.Model):
             key_hash=key_hash, expires_at__gt=timezone.now(), user__is_active=True
         ).first()
         if token:
-            cls.objects.filter(pk=token.pk).update(last_used_at=timezone.now())
+            # Token activity is audit metadata.  SQLite may briefly be locked
+            # while PDAM bulk sync runs; authentication must not fail for that.
+            try:
+                cls.objects.filter(pk=token.pk).update(last_used_at=timezone.now())
+            except OperationalError:
+                pass
         return token
 
 
@@ -318,9 +323,40 @@ class DevicePushToken(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
 
+class SalesLedgerRecord(models.Model):
+    """ERP-managed fields over a PDAM equipment record.
+
+    The source columns remain in PDAM and are refreshed at read time; only fields
+    the accounting team owns live in this database.
+    """
+
+    source_id = models.CharField(max_length=100, unique=True, db_index=True)
+    project_name = models.CharField(max_length=255, db_index=True)
+    contractor = models.CharField(max_length=120, blank=True)
+    partner = models.CharField(max_length=120, blank=True)
+    elevator = models.CharField(max_length=100, blank=True)
+    start_date = models.DateField()
+    end_date = models.DateField(null=True, blank=True)
+    pdam_status = models.CharField(max_length=40, blank=True)
+    source_category = models.CharField(max_length=40, blank=True)
+    category = models.CharField(max_length=20, blank=True)
+    billing_date = models.DateField(null=True, blank=True)
+    invoice_date = models.DateField(null=True, blank=True)
+    deposit_date = models.DateField(null=True, blank=True)
+    supply_amount = models.PositiveBigIntegerField(default=0)
+    installment = models.PositiveSmallIntegerField(default=1)
+    status = models.CharField(max_length=20, default="신규")
+    note = models.CharField(max_length=500, blank=True)
+    source_updated_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["project_name", "elevator", "id"]
+
+
 class PortalSetting(models.Model):
     singleton_key = models.PositiveSmallIntegerField(default=1, unique=True, editable=False)
-    portal_name = models.CharField(max_length=100, default="더우리기술 전자결재")
+    portal_name = models.CharField(max_length=100, default="우리기술 ERP")
     annual_leave_by_year = models.JSONField(default=default_annual_leave_policy)
     monthly_leave_per_month = models.PositiveSmallIntegerField(default=1)
     admin_otp_enabled = models.BooleanField(default=True)

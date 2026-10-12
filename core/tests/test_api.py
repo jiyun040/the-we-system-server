@@ -19,6 +19,7 @@ from core.models import (
     LeaveRequest,
     Notice,
     PortalSetting,
+    SalesLedgerRecord,
     User,
 )
 from core.views_collaboration import leave_calendar_dates
@@ -41,6 +42,38 @@ class ApiFlowTests(TestCase):
 
     def headers(self, token):
         return {"HTTP_AUTHORIZATION": f"Bearer {token}"}
+
+    def test_sales_ledger_includes_monthly_carry_and_enforces_billing_rules(self):
+        carry = SalesLedgerRecord.objects.create(
+            source_id="pdam-100", project_name="복합동공구", contractor="금호건설",
+            partner="우창건설", elevator="1호기", start_date=date(2026, 8, 1),
+            supply_amount=1790000, installment=1,
+        )
+        franchise = SalesLedgerRecord.objects.create(
+            source_id="pdam-200", project_name="가맹 현장", elevator="2호기",
+            start_date=date(2026, 9, 5), category="가맹", supply_amount=100000,
+        )
+        token = self.login()
+        ledger = self.client.get(
+            "/api/v1/sales/ledger?month=2026-09", **self.headers(token)
+        )
+        self.assertEqual(ledger.status_code, 200, ledger.content)
+        self.assertEqual([item["id"] for item in ledger.json()["items"]], [str(carry.pk), str(franchise.pk)])
+        self.assertEqual(ledger.json()["summary"]["unbilledCount"], 2)
+        saved = self.client.patch(
+            f"/api/v1/sales/ledger/{carry.pk}",
+            data=json.dumps({"installment": 2, "status": "진행", "supplyAmount": 2000000, "category": "본사", "billingDate": "2026-09-01"}),
+            content_type="application/json", **self.headers(token),
+        )
+        self.assertEqual(saved.status_code, 200, saved.content)
+        self.assertEqual(saved.json()["status"], "진행")
+        completed = self.client.patch(
+            f"/api/v1/sales/ledger/{carry.pk}",
+            data=json.dumps({"status": "종료", "installment": 2}),
+            content_type="application/json", **self.headers(token),
+        )
+        self.assertEqual(completed.status_code, 200, completed.content)
+        self.assertEqual(completed.json()["category"], "본사")
 
     def test_admin_can_decide_out_of_turn_leave_and_share_rejection_reason(self):
         teacher = User.objects.get(username="edu_teacher")
