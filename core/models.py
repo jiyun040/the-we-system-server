@@ -345,6 +345,8 @@ class SalesLedgerRecord(models.Model):
     invoice_date = models.DateField(null=True, blank=True)
     deposit_date = models.DateField(null=True, blank=True)
     supply_amount = models.PositiveBigIntegerField(default=0)
+    adjustment_amount = models.PositiveBigIntegerField(default=0)
+    adjustment_reason = models.CharField(max_length=500, blank=True)
     installment = models.PositiveSmallIntegerField(default=1)
     status = models.CharField(max_length=20, default="신규")
     note = models.CharField(max_length=500, blank=True)

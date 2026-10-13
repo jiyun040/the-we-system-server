@@ -136,6 +136,8 @@ def _data(record):
         "invoiceDate": record.invoice_date.isoformat() if record.invoice_date else "",
         "depositDate": record.deposit_date.isoformat() if record.deposit_date else "",
         "supplyAmount": record.supply_amount, "installment": record.installment,
+        "adjustmentAmount": record.adjustment_amount,
+        "adjustmentReason": record.adjustment_reason,
         "status": record.status, "note": record.note,
         "invoiceIssuer": record.invoice_issuer.strip() or "협력사",
     }
@@ -199,6 +201,15 @@ def ledger_detail(request, record_id):
         raise ApiError("공급가를 숫자로 입력해 주세요.") from exc
     if supply_amount < 0:
         raise ApiError("공급가는 0 이상이어야 합니다.")
+    try:
+        adjustment_amount = int(data.get("adjustmentAmount", record.adjustment_amount) or 0)
+    except (TypeError, ValueError) as exc:
+        raise ApiError("조정액을 숫자로 입력해 주세요.") from exc
+    if adjustment_amount < 0:
+        raise ApiError("조정액은 0 이상이어야 합니다.")
+    adjustment_reason = data.get("adjustmentReason", record.adjustment_reason)
+    if not isinstance(adjustment_reason, str) or len(adjustment_reason.strip()) > 500:
+        raise ApiError("조정사항은 500자 이내로 입력해 주세요.")
     invoice_issuer = data.get("invoiceIssuer", record.invoice_issuer)
     if not isinstance(invoice_issuer, str) or len(invoice_issuer.strip()) > 120:
         raise ApiError("계산서 발행처는 120자 이내로 입력해 주세요.", fields={"invoiceIssuer": "120자 이내 문자열이어야 합니다."})
@@ -209,6 +220,8 @@ def ledger_detail(request, record_id):
         record.invoice_date = _to_date(data.get("invoiceDate"))
         record.deposit_date = _to_date(data.get("depositDate"))
         record.supply_amount, record.installment, record.status = supply_amount, installment, status
+        record.adjustment_amount = adjustment_amount
+        record.adjustment_reason = adjustment_reason.strip()
         record.note = str(data.get("note", "")).strip()[:500]
         record.save()
     return JsonResponse(_data(record))
