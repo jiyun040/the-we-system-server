@@ -22,11 +22,12 @@ class InvoiceIssuerTests(TestCase):
     def test_saved_issuer_survives_fresh_queries_and_pdam_sync(self):
         for issuer in ["코오롱글로벌", "협력사", ""]:
             with self.subTest(issuer=issuer):
+                expected = issuer or "협력사"
                 response = self.save({"invoiceIssuer": issuer})
                 self.assertEqual(response.status_code, 200)
-                self.assertEqual(response.json()["invoiceIssuer"], issuer)
+                self.assertEqual(response.json()["invoiceIssuer"], expected)
                 self.record.refresh_from_db()
-                self.assertEqual(self.record.invoice_issuer, issuer)
+                self.assertEqual(self.record.invoice_issuer, expected)
                 with patch("core.views_sales._pdam_rows", return_value=[{
                     "source_id": "issuer-test", "project_name": "상주 현장",
                     "start_date": "2026-06-12", "contractor": "코오롱 글로벌", "partner": "삼창건설",
@@ -36,7 +37,7 @@ class InvoiceIssuerTests(TestCase):
                             "/api/v1/sales/statements?month=2026-09&projectName=상주 현장"]:
                     result = self.client.get(url)
                     self.assertEqual(result.status_code, 200)
-                    self.assertEqual(result.json()["items"][0]["invoiceIssuer"], issuer)
+                    self.assertEqual(result.json()["items"][0]["invoiceIssuer"], expected)
 
     def test_partial_updates_preserve_issuer_and_invalid_values_are_rejected(self):
         self.assertEqual(self.save({"invoiceIssuer": "시공사"}).status_code, 200)

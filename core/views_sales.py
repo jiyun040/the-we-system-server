@@ -137,7 +137,7 @@ def _data(record):
         "depositDate": record.deposit_date.isoformat() if record.deposit_date else "",
         "supplyAmount": record.supply_amount, "installment": record.installment,
         "status": record.status, "note": record.note,
-        "invoiceIssuer": record.invoice_issuer,
+        "invoiceIssuer": record.invoice_issuer.strip() or "협력사",
     }
 
 
@@ -203,7 +203,7 @@ def ledger_detail(request, record_id):
     if not isinstance(invoice_issuer, str) or len(invoice_issuer.strip()) > 120:
         raise ApiError("계산서 발행처는 120자 이내로 입력해 주세요.", fields={"invoiceIssuer": "120자 이내 문자열이어야 합니다."})
     with transaction.atomic():
-        record.invoice_issuer = invoice_issuer.strip()
+        record.invoice_issuer = invoice_issuer.strip() or "협력사"
         record.category = category
         record.billing_date = _to_date(data.get("billingDate"))
         record.invoice_date = _to_date(data.get("invoiceDate"))
