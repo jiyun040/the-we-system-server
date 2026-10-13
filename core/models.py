@@ -341,6 +341,7 @@ class SalesLedgerRecord(models.Model):
     source_category = models.CharField(max_length=40, blank=True)
     category = models.CharField(max_length=20, blank=True)
     billing_date = models.DateField(null=True, blank=True)
+    invoice_issuer = models.CharField(max_length=120, blank=True, default="")
     invoice_date = models.DateField(null=True, blank=True)
     deposit_date = models.DateField(null=True, blank=True)
     supply_amount = models.PositiveBigIntegerField(default=0)

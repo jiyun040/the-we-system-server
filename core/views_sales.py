@@ -137,6 +137,7 @@ def _data(record):
         "depositDate": record.deposit_date.isoformat() if record.deposit_date else "",
         "supplyAmount": record.supply_amount, "installment": record.installment,
         "status": record.status, "note": record.note,
+        "invoiceIssuer": record.invoice_issuer,
     }
 
 
@@ -198,7 +199,11 @@ def ledger_detail(request, record_id):
         raise ApiError("공급가를 숫자로 입력해 주세요.") from exc
     if supply_amount < 0:
         raise ApiError("공급가는 0 이상이어야 합니다.")
+    invoice_issuer = data.get("invoiceIssuer", record.invoice_issuer)
+    if not isinstance(invoice_issuer, str) or len(invoice_issuer.strip()) > 120:
+        raise ApiError("계산서 발행처는 120자 이내로 입력해 주세요.", fields={"invoiceIssuer": "120자 이내 문자열이어야 합니다."})
     with transaction.atomic():
+        record.invoice_issuer = invoice_issuer.strip()
         record.category = category
         record.billing_date = _to_date(data.get("billingDate"))
         record.invoice_date = _to_date(data.get("invoiceDate"))
