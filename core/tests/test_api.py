@@ -1,10 +1,12 @@
 import json
-from datetime import date
+import base64
+from datetime import date, timedelta
 from importlib import import_module
 
 from django.apps import apps
 from django.core.management import call_command
 from django.test import TestCase, override_settings
+from django.utils import timezone
 
 from core.admin_access import (
     DESIGNATED_ADMIN_DEPARTMENT,
@@ -446,6 +448,76 @@ class ApiFlowTests(TestCase):
         )
         self.assertEqual(deleted.status_code, 204)
         self.assertFalse(Notice.objects.filter(pk=notice_id).exists())
+
+    def test_notice_draft_attachment_publish_and_seven_day_expiry(self):
+        department, _ = Department.objects.get_or_create(name=DESIGNATED_ADMIN_DEPARTMENT)
+        User.objects.create_user(
+            username=DESIGNATED_ADMIN_USERNAME,
+            password="safe-password-1234",
+            first_name=DESIGNATED_ADMIN_NAME,
+            department=department,
+            position=DESIGNATED_ADMIN_POSITION,
+            is_staff=True,
+        )
+        admin_token = self.login(DESIGNATED_ADMIN_USERNAME, "safe-password-1234")
+        employee_token = self.login("edu_teacher")
+        created = self.client.post(
+            "/api/v1/notices",
+            data=json.dumps({
+                "title": "",
+                "content": "",
+                "isDraft": True,
+                "attachments": [{
+                    "name": "sample.png",
+                    "mimeType": "image/png",
+                    "base64Data": base64.b64encode(b"sample image bytes").decode(),
+                }],
+            }),
+            content_type="application/json",
+            **self.headers(admin_token),
+        )
+        self.assertEqual(created.status_code, 201, created.content)
+        notice_id = created.json()["id"]
+        attachment_id = created.json()["attachments"][0]["id"]
+        self.assertTrue(created.json()["isDraft"])
+        self.assertNotIn("base64Data", created.json()["attachments"][0])
+
+        employee_bootstrap = self.client.get("/api/v1/bootstrap", **self.headers(employee_token))
+        self.assertNotIn(notice_id, [row["id"] for row in employee_bootstrap.json()["notices"]])
+        hidden = self.client.get(
+            f"/api/v1/notices/{notice_id}/attachments/{attachment_id}",
+            **self.headers(employee_token),
+        )
+        self.assertEqual(hidden.status_code, 404)
+        downloaded = self.client.get(
+            f"/api/v1/notices/{notice_id}/attachments/{attachment_id}",
+            **self.headers(admin_token),
+        )
+        self.assertEqual(downloaded.content, b"sample image bytes")
+
+        published = self.client.patch(
+            f"/api/v1/notices/{notice_id}",
+            data=json.dumps({
+                "title": "게시 공지",
+                "content": "내용",
+                "isDraft": False,
+                "attachments": [{"id": attachment_id}],
+            }),
+            content_type="application/json",
+            **self.headers(admin_token),
+        )
+        self.assertEqual(published.status_code, 200, published.content)
+        self.assertFalse(published.json()["isDraft"])
+        self.assertIn(notice_id, [row["id"] for row in self.client.get(
+            "/api/v1/bootstrap", **self.headers(employee_token),
+        ).json()["notices"]])
+
+        another = Notice.objects.create(
+            title="임시저장", content="내용", author=User.objects.get(username=DESIGNATED_ADMIN_USERNAME), is_draft=True,
+        )
+        Notice.objects.filter(pk=another.pk).update(updated_at=timezone.now() - timedelta(days=8))
+        self.client.get("/api/v1/notices", **self.headers(admin_token))
+        self.assertFalse(Notice.objects.filter(pk=another.pk).exists())
 
     def test_designated_admin_migration_updates_matching_account_only(self):
         department, _ = Department.objects.get_or_create(

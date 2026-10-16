@@ -5,7 +5,6 @@ from .models import (
     ApprovalFormTemplate,
     Department,
     LeaveRequest,
-    Notice,
     PortalSetting,
     User,
 )
@@ -19,9 +18,11 @@ from .serializers import (
 )
 from .views_approvals import can_read, document_queryset, frequent_forms_for_user
 from .views_leave import can_view_leave
+from .views_notices import purge_expired_drafts, visible_notices
 
 @endpoint(["GET"])
 def bootstrap(request):
+    purge_expired_drafts()
     user = request.api_user
     accounts = (
         User.objects.select_related("department")
@@ -60,7 +61,7 @@ def bootstrap(request):
             "leaveRequests": [leave_data(leave) for leave in leaves],
             "notices": [
                 notice_data(notice)
-                for notice in Notice.objects.select_related("author").all()
+                for notice in visible_notices(user)
             ],
             "acknowledgedLeaveRequestIds": [
                 leave.public_id for leave in leaves if leave.acknowledged

@@ -280,11 +280,21 @@ class Notice(models.Model):
         related_name="notices",
     )
     is_pinned = models.BooleanField(default=False)
+    is_draft = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ["-is_pinned", "-created_at", "-id"]
+
+
+class NoticeAttachment(models.Model):
+    notice = models.ForeignKey(Notice, on_delete=models.CASCADE, related_name="attachments")
+    name = models.CharField(max_length=255)
+    mime_type = models.CharField(max_length=150, default="application/octet-stream")
+    size = models.PositiveIntegerField()
+    base64_data = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
 
 
 class SharedCalendarEvent(models.Model):

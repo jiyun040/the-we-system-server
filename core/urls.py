@@ -34,6 +34,7 @@ urlpatterns = [
     path("admin/change-otp", views_auth.change_admin_otp, name="change-admin-otp"),
     path("notices", views_notices.notices, name="notices"),
     path("notices/<int:notice_id>", views_notices.notice_detail, name="notice-detail"),
+    path("notices/<int:notice_id>/attachments/<int:attachment_id>", views_notices.notice_attachment, name="notice-attachment"),
     path("organization/departments", views_org.departments, name="departments"),
     path("organization/departments/reorder", views_org.reorder_departments, name="department-reorder"),
     path("organization/employees", views_org.employees, name="employees"),

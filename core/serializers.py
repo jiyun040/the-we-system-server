@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from django.utils import timezone
 
 from .admin_access import can_change_admin_otp
@@ -151,6 +153,12 @@ def notice_data(notice):
         "content": notice.content,
         "authorName": notice.author.display_name,
         "isPinned": notice.is_pinned,
+        "isDraft": notice.is_draft,
+        "draftExpiresAt": (notice.updated_at + timedelta(days=7)).isoformat() if notice.is_draft else None,
+        "attachments": [
+            {"id": str(item.pk), "name": item.name, "mimeType": item.mime_type, "size": item.size}
+            for item in notice.attachments.all()
+        ],
         "createdAt": notice.created_at.isoformat(),
         "updatedAt": notice.updated_at.isoformat(),
     }
