@@ -232,11 +232,15 @@ def employees(request):
         fields = {key: str(data.get(key) or "").strip() for key in (
             "id", "password", "name", "department", "position", "hireDate"
         )}
-        require_fields(fields, fields.keys())
-        try:
-            hire_date = date.fromisoformat(fields["hireDate"])
-        except ValueError as exc:
-            raise ApiError("입사일은 YYYY-MM-DD 형식이어야 합니다.", fields={"hireDate": "잘못된 날짜입니다."}) from exc
+        is_intern = fields["position"] == "실습"
+        require_fields(fields, (key for key in fields if key != "hireDate" or not is_intern))
+        if is_intern:
+            hire_date = None
+        else:
+            try:
+                hire_date = date.fromisoformat(fields["hireDate"])
+            except ValueError as exc:
+                raise ApiError("입사일은 YYYY-MM-DD 형식이어야 합니다.", fields={"hireDate": "잘못된 날짜입니다."}) from exc
         if User.objects.filter(username=fields["id"]).exists():
             raise ApiError("이미 사용 중인 아이디입니다.", fields={"id": "중복된 아이디입니다."})
         department, _ = Department.get_or_create_at_end(fields["department"])
@@ -322,7 +326,10 @@ def employee_detail(request, user_id):
     if "position" in data:
         user.position = str(data["position"] or "").strip()
         updated.append("position")
-    if "hireDate" in data:
+    if user.position == "실습":
+        user.hire_date = None
+        updated.append("hire_date")
+    elif "hireDate" in data:
         try:
             user.hire_date = date.fromisoformat(str(data["hireDate"]))
         except ValueError as exc:

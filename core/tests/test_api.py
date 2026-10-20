@@ -785,6 +785,28 @@ class ApiFlowTests(TestCase):
             payload["documentCategoryViewerIds"],
         )
 
+    def test_intern_can_be_created_without_hire_date(self):
+        headers = self.headers(self.login())
+        response = self.client.post(
+            "/api/v1/organization/employees",
+            data=json.dumps({
+                "id": "intern_member",
+                "password": "safe-password-1234",
+                "name": "실습직원",
+                "department": "신규부서",
+                "position": "실습",
+                "hireDate": "",
+                "annualLeaveDays": 0,
+                "monthlyLeaveDays": 0,
+                "leaveBalanceAdjustment": 0,
+            }),
+            content_type="application/json",
+            **headers,
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(response.json()["user"]["hireDate"], "")
+        self.assertIsNone(User.objects.get(username="intern_member").hire_date)
+
     def test_department_and_employee_crud(self):
         token = self.login()
         headers = self.headers(token)

@@ -349,29 +349,33 @@ def leave_summary(request):
             raise ApiError("직원을 찾을 수 없습니다.", status=404, code="user_not_found")
     setting = PortalSetting.load()
     today = timezone.localdate()
-    completed_years = today.year - user.hire_date.year
-    if (today.month, today.day) < (user.hire_date.month, user.hire_date.day):
-        completed_years -= 1
-    service_year = max(1, completed_years)
-    completed_months = (
-        (today.year - user.hire_date.year) * 12
-        + today.month
-        - user.hire_date.month
-    )
-    if today.day < user.hire_date.day:
-        completed_months -= 1
-    completed_months = max(0, completed_months)
-    if completed_months < 12:
-        entitlement = Decimal(completed_months * setting.monthly_leave_per_month)
+    if user.position == "실습" or user.hire_date is None:
+        service_year = 0
+        entitlement = Decimal("0")
     else:
-        entitlement = Decimal(
-            str(
-                entitlement_for_service_year(
-                    setting.annual_leave_by_year,
-                    service_year,
+        completed_years = today.year - user.hire_date.year
+        if (today.month, today.day) < (user.hire_date.month, user.hire_date.day):
+            completed_years -= 1
+        service_year = max(1, completed_years)
+        completed_months = (
+            (today.year - user.hire_date.year) * 12
+            + today.month
+            - user.hire_date.month
+        )
+        if today.day < user.hire_date.day:
+            completed_months -= 1
+        completed_months = max(0, completed_months)
+        if completed_months < 12:
+            entitlement = Decimal(completed_months * setting.monthly_leave_per_month)
+        else:
+            entitlement = Decimal(
+                str(
+                    entitlement_for_service_year(
+                        setting.annual_leave_by_year,
+                        service_year,
+                    )
                 )
             )
-        )
     current_year_requests = user.leave_requests.filter(start_date__year=today.year)
     approved = current_year_requests.filter(status=LeaveRequest.Status.APPROVED)
     pending = current_year_requests.filter(status=LeaveRequest.Status.PENDING)

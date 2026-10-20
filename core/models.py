@@ -63,7 +63,7 @@ class User(AbstractUser):
         Department, null=True, blank=True, on_delete=models.PROTECT, related_name="members"
     )
     position = models.CharField(max_length=50, blank=True)
-    hire_date = models.DateField(default=date.today)
+    hire_date = models.DateField(default=date.today, null=True, blank=True)
     admin_otp_hash = models.CharField(max_length=128, blank=True)
     annual_leave_days = models.DecimalField(
         max_digits=5,
