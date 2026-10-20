@@ -349,6 +349,7 @@ class SalesLedgerRecord(models.Model):
     end_date = models.DateField(null=True, blank=True)
     pdam_status = models.CharField(max_length=40, blank=True)
     source_category = models.CharField(max_length=40, blank=True)
+    source_deleted = models.BooleanField(default=False)
     category = models.CharField(max_length=20, blank=True)
     billing_date = models.DateField(null=True, blank=True)
     invoice_issuer = models.CharField(max_length=120, default="협력사")
@@ -365,6 +366,28 @@ class SalesLedgerRecord(models.Model):
 
     class Meta:
         ordering = ["project_name", "elevator", "id"]
+
+
+class SalesLedgerMonth(models.Model):
+    """Accounting values and usage dates for one device in one billing month."""
+    record = models.ForeignKey(SalesLedgerRecord, on_delete=models.CASCADE, related_name="months")
+    month = models.DateField()
+    start_date = models.DateField(null=True, blank=True)
+    end_date = models.DateField(null=True, blank=True)
+    billing_date = models.DateField(null=True, blank=True)
+    invoice_date = models.DateField(null=True, blank=True)
+    deposit_date = models.DateField(null=True, blank=True)
+    invoice_issuer = models.CharField(max_length=120, default="협력사")
+    supply_amount = models.PositiveBigIntegerField(default=0)
+    adjustment_amount = models.PositiveBigIntegerField(default=0)
+    adjustment_reason = models.CharField(max_length=500, blank=True)
+    installment = models.PositiveSmallIntegerField(default=1)
+    status = models.CharField(max_length=20, blank=True)
+    note = models.CharField(max_length=500, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["record", "month"], name="unique_sales_record_month")]
 
 
 class PortalSetting(models.Model):

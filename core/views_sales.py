@@ -1,3 +1,5 @@
+from copy import copy
+
 from datetime import date, datetime, timedelta
 
 import pymysql
@@ -8,7 +10,8 @@ from django.http import JsonResponse
 from django.utils import timezone
 
 from .api import ApiError, endpoint, parse_json
-from .models import SalesLedgerRecord
+from .models import SalesLedgerRecord, SalesLedgerMonth
+from .pdam_sales import sales_query
 
 
 def _parse_month(value):
@@ -34,7 +37,7 @@ def _to_date(value):
 
 def _pdam_rows():
     """Return rows directly from the configured PDAM DB, never through HTTP."""
-    query = settings.PDAM_SALES_QUERY
+    query = sales_query(settings.PDAM_SALES_QUERY)
     if not query or not settings.PDAM_DB_NAME:
         return []
     if not query.lstrip().lower().startswith("select"):
@@ -90,20 +93,26 @@ def sync_pdam_sales_records():
             "end_date": _to_date(source.get("end_date")),
             "pdam_status": pdam_status,
             "source_category": source_category,
+            "source_deleted": str(source.get("is_deleted", 0)).lower() in {"1", "true"},
         }
         record = existing.get(source_id)
         if record is None:
             creates.append(SalesLedgerRecord(
                 source_id=source_id,
-                category="" if pdam_status == "종료" else source_category if source_category in {"본사", "가맹"} else "",
+                category=source_category if source_category in {"본사", "가맹"} else "",
                 status="종료" if pdam_status == "종료" else "신규",
                 **source_fields,
             ))
             continue
+        previous_pdam_status = record.pdam_status
         for field, value in source_fields.items():
             setattr(record, field, value)
         if pdam_status == "종료":
-            record.status, record.category = "종료", ""
+            record.status = "종료"
+        elif previous_pdam_status == "종료":
+            record.status = "진행"
+        if source_category in {"본사", "가맹"} and (pdam_status != "종료" or record.category not in {"본사", "가맹"}):
+            record.category = source_category
         updates.append(record)
     synced_at = timezone.now()
     for record in updates:
@@ -114,7 +123,7 @@ def sync_pdam_sales_records():
         if updates:
             SalesLedgerRecord.objects.bulk_update(
                 updates,
-                ["project_name", "contractor", "partner", "elevator", "start_date", "end_date", "pdam_status", "source_category", "status", "category", "updated_at"],
+                ["project_name", "contractor", "partner", "elevator", "start_date", "end_date", "pdam_status", "source_category", "source_deleted", "status", "category", "updated_at"],
                 batch_size=500,
             )
 
@@ -126,9 +135,50 @@ def sync_pdam_sales_records_if_stale():
     sync_pdam_sales_records()
 
 
-def _data(record):
+MONTH_FIELDS = (
+    "start_date", "end_date", "billing_date", "invoice_date", "deposit_date",
+    "invoice_issuer", "supply_amount", "adjustment_amount", "adjustment_reason",
+    "installment", "status", "note",
+)
+
+
+def _monthly_record(source, month):
+    if getattr(source, "ledger_month", None) == month:
+        return source
+    record = copy(source)
+    record.ledger_month = month
+    record.contract_start_date = source.start_date
+    record.contract_end_date = source.end_date
+    months = list(source.months.all())
+    saved = next((item for item in months if item.month == month), None)
+    ended = source.pdam_status == "종료" or source.status == "종료"
+    record.start_date = max(source.start_date, month)
+    record.end_date = min(source.end_date, _month_end(month)) if ended and source.end_date else _month_end(month)
+    record.status = "종료" if ended and (not source.end_date or source.end_date <= _month_end(month)) else "진행" if source.start_date < month else "신규"
+    if saved:
+        for field in MONTH_FIELDS:
+            if field not in {"start_date", "end_date", "status"}:
+                setattr(record, field, getattr(saved, field))
+        record.start_date = saved.start_date or record.start_date
+        record.end_date = min(saved.end_date, record.end_date) if saved.end_date else record.end_date
+        if saved.status == "종료" and record.status != "종료":
+            record.status = "종료"
+    elif months or (source.billing_date and source.billing_date.replace(day=1) != month):
+        record.billing_date = record.invoice_date = record.deposit_date = None
+        record.supply_amount = record.adjustment_amount = 0
+        record.adjustment_reason = ""
+        record.installment = max([item.installment for item in months if item.month < month and item.billing_date] + [0]) + 1
+    return record
+
+
+def _data(record, month=None):
+    if month is not None:
+        record = _monthly_record(record, month)
     return {
         "id": str(record.pk), "projectName": record.project_name,
+        "month": month.strftime("%Y-%m") if month else "",
+        "contractStartDate": getattr(record, "contract_start_date", record.start_date).isoformat(),
+        "contractEndDate": (getattr(record, "contract_end_date", record.end_date) or "").isoformat() if getattr(record, "contract_end_date", record.end_date) else "",
         "contractor": record.contractor, "partner": record.partner,
         "elevator": record.elevator, "startDate": record.start_date.isoformat(),
         "endDate": record.end_date.isoformat() if record.end_date else "",
@@ -146,25 +196,29 @@ def _data(record):
 def _records_for_month(month, query="", status=""):
     # This condition includes monthly carry-over projects; the selected month is
     # anchored by use-start date and constrained by the end date when present.
-    records = SalesLedgerRecord.objects.filter(start_date__lte=_month_end(month)).filter(
+    records = SalesLedgerRecord.objects.filter(source_deleted=False, start_date__lte=_month_end(month)).filter(
         Q(end_date__isnull=True) | Q(end_date__gte=month)
     )
     if query:
         records = records.filter(Q(project_name__icontains=query) | Q(contractor__icontains=query) | Q(partner__icontains=query))
     if status:
         records = records.filter(status=status)
-    return records.order_by("project_name", "elevator", "id")
+    return records.prefetch_related("months").order_by("project_name", "elevator", "id")
 
 
 @endpoint(["GET"])
 def ledger(request):
     month = _parse_month(request.GET.get("month"))
     sync_pdam_sales_records_if_stale()
-    records = list(_records_for_month(month, request.GET.get("q", "").strip(), request.GET.get("status", "").strip()))
+    records = list(_records_for_month(month, request.GET.get("q", "").strip()))
+    records = [_monthly_record(item, month) for item in records]
+    requested_status = request.GET.get("status", "").strip()
+    if requested_status:
+        records = [item for item in records if item.status == requested_status]
     records.sort(key=lambda item: (item.category == "가맹", item.project_name, item.elevator))
     billed = [item for item in records if item.billing_date]
     unpaid = [item for item in billed if not item.deposit_date]
-    return JsonResponse({"items": [_data(item) for item in records], "summary": {
+    return JsonResponse({"items": [_data(item, month) for item in records], "summary": {
         "supplyAmount": sum(item.supply_amount for item in records), "billCount": len(billed),
         "unbilledCount": len(records) - len(billed),
         "unissuedInvoiceCount": sum(1 for item in billed if not item.invoice_date),
@@ -179,6 +233,12 @@ def ledger_detail(request, record_id):
     except SalesLedgerRecord.DoesNotExist as exc:
         raise ApiError("청구 항목을 찾을 수 없습니다.", status=404, code="not_found") from exc
     data = parse_json(request)
+    month = _parse_month(data["month"]) if data.get("month") else None
+    source_record = record
+    if month:
+        if record.start_date > _month_end(month) or (record.end_date and record.end_date < month):
+            raise ApiError("해당 월의 사용 항목이 아닙니다.")
+        record = _monthly_record(record, month)
     category = str(data.get("category", record.category)).strip()
     if category not in {"", "본사", "가맹"}:
         raise ApiError("분류는 본사 또는 가맹만 선택할 수 있습니다.")
@@ -189,8 +249,8 @@ def ledger_detail(request, record_id):
     if installment < 1:
         raise ApiError("회차는 1회차부터 입력해 주세요.", fields={"installment": "1 이상이어야 합니다."})
     requested_status = str(data.get("status", record.status))
-    if record.pdam_status == "종료":
-        status, category = "종료", ""
+    if record.pdam_status == "종료" and (not month or not source_record.end_date or source_record.end_date <= _month_end(month)):
+        status = "종료"
     elif requested_status in {"신규", "진행", "종료"}:
         status = requested_status
     else:
@@ -216,15 +276,30 @@ def ledger_detail(request, record_id):
     with transaction.atomic():
         record.invoice_issuer = invoice_issuer.strip() or "협력사"
         record.category = category
-        record.billing_date = _to_date(data.get("billingDate"))
-        record.invoice_date = _to_date(data.get("invoiceDate"))
-        record.deposit_date = _to_date(data.get("depositDate"))
+        record.billing_date = _to_date(data.get("billingDate", record.billing_date))
+        record.invoice_date = _to_date(data.get("invoiceDate", record.invoice_date))
+        record.deposit_date = _to_date(data.get("depositDate", record.deposit_date))
         record.supply_amount, record.installment, record.status = supply_amount, installment, status
         record.adjustment_amount = adjustment_amount
         record.adjustment_reason = adjustment_reason.strip()
-        record.note = str(data.get("note", "")).strip()[:500]
-        record.save()
-    return JsonResponse(_data(record))
+        record.note = str(data.get("note", record.note)).strip()[:500]
+        if month:
+            for field, key in [("start_date", "startDate"), ("end_date", "endDate")]:
+                value = _to_date(data.get(key)) if key in data else getattr(record, field)
+                if value is None or not month <= value <= _month_end(month):
+                    raise ApiError("사용일은 선택한 월 안의 날짜여야 합니다.")
+                setattr(record, field, value)
+            if record.end_date < record.start_date:
+                raise ApiError("사용 종료일은 시작일 이후여야 합니다.")
+            SalesLedgerMonth.objects.update_or_create(
+                record=source_record, month=month,
+                defaults={field: getattr(record, field) for field in MONTH_FIELDS},
+            )
+            source_record.category = category
+            source_record.save(update_fields=["category", "updated_at"])
+        else:
+            record.save()
+    return JsonResponse(_data(record, month))
 
 
 @endpoint(["GET"])
@@ -235,4 +310,4 @@ def statements(request):
         raise ApiError("공사명이 필요합니다.", fields={"projectName": "필수 항목입니다."})
     sync_pdam_sales_records_if_stale()
     items = _records_for_month(month).filter(project_name=project_name)
-    return JsonResponse({"projectName": project_name, "items": [_data(item) for item in items]})
+    return JsonResponse({"projectName": project_name, "items": [_data(item, month) for item in items]})
