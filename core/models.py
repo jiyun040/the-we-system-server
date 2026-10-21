@@ -346,6 +346,8 @@ class SalesLedgerRecord(models.Model):
     partner = models.CharField(max_length=120, blank=True)
     elevator = models.CharField(max_length=100, blank=True)
     start_date = models.DateField()
+    # First date a PDAM work record was entered; separate from usage start.
+    record_date = models.DateField(null=True, blank=True, db_index=True)
     end_date = models.DateField(null=True, blank=True)
     pdam_status = models.CharField(max_length=40, blank=True)
     source_category = models.CharField(max_length=40, blank=True)

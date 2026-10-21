@@ -90,6 +90,7 @@ def sync_pdam_sales_records():
             "partner": str(source.get("partner") or "").strip(),
             "elevator": str(source.get("elevator") or "").strip(),
             "start_date": start_date,
+            "record_date": _to_date(source.get("record_date")) or start_date,
             "end_date": _to_date(source.get("end_date")),
             "pdam_status": pdam_status,
             "source_category": source_category,
@@ -124,7 +125,7 @@ def sync_pdam_sales_records():
         if updates:
             SalesLedgerRecord.objects.bulk_update(
                 updates,
-                ["project_name", "contractor", "partner", "elevator", "start_date", "end_date", "pdam_status", "source_category", "source_deleted", "status", "category", "updated_at"],
+                ["project_name", "contractor", "partner", "elevator", "start_date", "record_date", "end_date", "pdam_status", "source_category", "source_deleted", "status", "category", "updated_at"],
                 batch_size=500,
             )
 
@@ -155,7 +156,7 @@ def _monthly_record(source, month):
     ended = source.pdam_status == "종료" or source.status == "종료"
     record.start_date = max(source.start_date, month)
     record.end_date = min(source.end_date, _month_end(month)) if ended and source.end_date else _month_end(month)
-    record.status = "종료" if ended and (not source.end_date or source.end_date <= _month_end(month)) else "진행" if source.start_date < month else "신규"
+    record.status = "종료" if ended and (not source.end_date or source.end_date <= _month_end(month)) else "진행" if (source.record_date or source.start_date) < month else "신규"
     if saved:
         for field in MONTH_FIELDS:
             if field not in {"start_date", "end_date", "status"}:
@@ -180,6 +181,7 @@ def _data(record, month=None):
         "month": month.strftime("%Y-%m") if month else "",
         "contractStartDate": getattr(record, "contract_start_date", record.start_date).isoformat(),
         "contractEndDate": (getattr(record, "contract_end_date", record.end_date) or "").isoformat() if getattr(record, "contract_end_date", record.end_date) else "",
+        "recordDate": (record.record_date or record.start_date).isoformat(),
         "contractor": record.contractor, "partner": record.partner,
         "elevator": record.elevator, "startDate": record.start_date.isoformat(),
         "endDate": record.end_date.isoformat() if record.end_date else "",
@@ -197,9 +199,10 @@ def _data(record, month=None):
 def _records_for_month(month, query="", status=""):
     # This condition includes monthly carry-over projects; the selected month is
     # anchored by use-start date and constrained by the end date when present.
-    records = SalesLedgerRecord.objects.filter(source_deleted=False, start_date__lte=_month_end(month)).filter(
-        Q(end_date__isnull=True) | Q(end_date__gte=month)
-    )
+    records = SalesLedgerRecord.objects.filter(source_deleted=False).filter(
+        Q(record_date__lte=_month_end(month))
+        | Q(record_date__isnull=True, start_date__lte=_month_end(month))
+    ).filter(Q(end_date__isnull=True) | Q(end_date__gte=month))
     if query:
         records = records.filter(Q(project_name__icontains=query) | Q(contractor__icontains=query) | Q(partner__icontains=query))
     if status:
