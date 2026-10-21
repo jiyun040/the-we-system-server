@@ -13,7 +13,7 @@ SELECT d.id AS source_id,
 FROM TB_DEVICE d
 LEFT JOIN TB_CONSTRUCTION c ON c.id = d.constructionIdx
 LEFT JOIN TB_GROUP g ON g.idx = c.groupIdx
-LEFT JOIN (SELECT constructionIdx, MIN(createDate) AS record_date FROM TB_REPORT GROUP BY constructionIdx) r ON r.constructionIdx = d.constructionIdx
+LEFT JOIN (SELECT deviceIdx, MIN(currentDateTime) AS record_date FROM TB_REPORT GROUP BY deviceIdx) r ON r.deviceIdx = d.id
 """.strip()
 
 
