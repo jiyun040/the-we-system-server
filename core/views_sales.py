@@ -111,8 +111,9 @@ def sync_pdam_sales_records():
             record.status = "종료"
         elif previous_pdam_status == "종료":
             record.status = "진행"
-        if source_category in {"본사", "가맹"} and (pdam_status != "종료" or record.category not in {"본사", "가맹"}):
-            record.category = source_category
+        # conduct=1 is 종료. 종료 rows must not remain counted as either
+        # headquarters or franchise because their old category is stale.
+        record.category = source_category if pdam_status != "종료" and source_category in {"본사", "가맹"} else ""
         updates.append(record)
     synced_at = timezone.now()
     for record in updates:

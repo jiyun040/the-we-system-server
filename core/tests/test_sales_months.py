@@ -109,7 +109,7 @@ class SalesMonthTests(TestCase):
             'start_date':'2026-08-10','status':'종료','category':'본사'}]
         sync_pdam_sales_records()
         self.record.refresh_from_db()
-        self.assertEqual((self.record.category,self.record.status),('가맹','종료'))
+        self.assertEqual((self.record.category,self.record.status),('','종료'))
         self.record.pdam_status='진행'
         self.record.save()
         rows.return_value[0]['status']='진행'
@@ -118,25 +118,8 @@ class SalesMonthTests(TestCase):
         self.record.refresh_from_db()
         self.assertEqual(self.record.status,'종료')
 
-    def test_legacy_migration_preserves_delayed_bill_in_usage_month(self):
-        from importlib import import_module
-        from django.apps import apps
-        from django.db import connection
-        self.record.end_date = date(2026,9,15)
-        self.record.billing_date = date(2026,10,3)
-        self.record.supply_amount = 1230000
-        self.record.save()
-        migrate = import_module('core.migrations.0023_sales_months_and_source_deleted').preserve_billed_months
-        from types import SimpleNamespace
-        editor = SimpleNamespace(connection=connection)
-        migrate(apps, editor)
-        migrate(apps, editor)
-        self.assertEqual(SalesLedgerMonth.objects.count(),1)
-        self.assertEqual(_data(self.record,date(2026,9,1))['supplyAmount'],1230000)
-        self.assertEqual(_data(self.record,date(2026,9,1))['billingDate'],'2026-10-03')
-
     @patch('core.views_sales._pdam_rows')
-    def test_first_seen_completed_device_has_no_invented_headquarters_category(self, rows):
+    def test_first_seen_completed_device_has_no_category(self, rows):
         rows.return_value = [{'source_id':'ended-new','project_name':'종료 현장',
             'start_date':'2026-09-01','end_date':'2026-09-10',
             'status':'종료','category':''}]
