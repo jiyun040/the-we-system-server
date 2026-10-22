@@ -21,7 +21,7 @@ def _parse_month(value):
         raise ApiError("month는 YYYY-MM 형식이어야 합니다.", fields={"month": "형식을 확인해 주세요."}) from exc
 
 
-@endpoint(["GET", "POST"])
+@endpoint(["GET", "POST", "PATCH", "DELETE"])
 def ledger_archives(request):
     if request.method == "GET":
         items = [
@@ -33,6 +33,31 @@ def ledger_archives(request):
             for archive in SalesLedgerArchive.objects.order_by("-year")
         ]
         return JsonResponse({"items": items})
+    if request.method in {"PATCH", "DELETE"}:
+        try:
+            year = int(request.GET.get("year", ""))
+            archive = SalesLedgerArchive.objects.get(year=year)
+        except (TypeError, ValueError, SalesLedgerArchive.DoesNotExist) as exc:
+            raise ApiError("해당 연도 보관 파일이 없습니다.", status=404, code="not_found") from exc
+        if request.method == "DELETE":
+            archive.file.delete(save=False)
+            archive.delete()
+            return JsonResponse({"deleted": year})
+        data = parse_json(request)
+        name = str(data.get("name", "")).strip()
+        if not name:
+            raise ApiError("파일 이름을 입력해 주세요.")
+        if not name.lower().endswith(".xlsx"):
+            name += ".xlsx"
+        old_name = archive.file.name
+        new_name = f"sales-ledger-archives/{name}"
+        with archive.file.open("rb") as source:
+            archive.file.storage.save(new_name, source)
+        if old_name != new_name:
+            archive.file.storage.delete(old_name)
+        archive.file.name = new_name
+        archive.save(update_fields=["file", "updated_at"])
+        return JsonResponse({"year": year, "name": name})
     try:
         year = int(request.POST.get("year", ""))
     except (TypeError, ValueError) as exc:
