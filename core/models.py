@@ -392,6 +392,13 @@ class SalesLedgerMonth(models.Model):
         constraints = [models.UniqueConstraint(fields=["record", "month"], name="unique_sales_record_month")]
 
 
+class SalesLedgerArchive(models.Model):
+    year = models.PositiveSmallIntegerField(unique=True, db_index=True)
+    file = models.FileField(upload_to="sales-ledger-archives/")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
 class PortalSetting(models.Model):
     singleton_key = models.PositiveSmallIntegerField(default=1, unique=True, editable=False)
     portal_name = models.CharField(max_length=100, default="우리기술 ERP")

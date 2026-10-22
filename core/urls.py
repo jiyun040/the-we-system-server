@@ -17,6 +17,8 @@ from . import (
 urlpatterns = [
     path("health", views.health, name="health"),
     path("sales/ledger", views_sales.ledger, name="sales-ledger"),
+    path("sales/ledger/archives", views_sales.ledger_archives, name="sales-ledger-archives"),
+    path("sales/ledger/archives/<int:year>", views_sales.ledger_archive_download, name="sales-ledger-archive-download"),
     path("sales/ledger/<int:record_id>", views_sales.ledger_detail, name="sales-ledger-detail"),
     path("sales/statements", views_sales.statements, name="sales-statements"),
     path("bootstrap", views_bootstrap.bootstrap, name="bootstrap"),

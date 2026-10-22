@@ -6,11 +6,11 @@ import pymysql
 from django.conf import settings
 from django.db import transaction
 from django.db.models import Q
-from django.http import JsonResponse
+from django.http import FileResponse, JsonResponse
 from django.utils import timezone
 
 from .api import ApiError, endpoint, parse_json
-from .models import SalesLedgerRecord, SalesLedgerMonth
+from .models import SalesLedgerArchive, SalesLedgerRecord, SalesLedgerMonth
 from .pdam_sales import sales_query
 
 
@@ -19,6 +19,40 @@ def _parse_month(value):
         return datetime.strptime(value, "%Y-%m").date().replace(day=1)
     except (TypeError, ValueError) as exc:
         raise ApiError("month는 YYYY-MM 형식이어야 합니다.", fields={"month": "형식을 확인해 주세요."}) from exc
+
+
+@endpoint(["GET", "POST"])
+def ledger_archives(request):
+    if request.method == "GET":
+        items = [
+            {
+                "year": archive.year,
+                "name": archive.file.name.rsplit("/", 1)[-1],
+                "updatedAt": archive.updated_at.isoformat(),
+            }
+            for archive in SalesLedgerArchive.objects.order_by("-year")
+        ]
+        return JsonResponse({"items": items})
+    try:
+        year = int(request.POST.get("year", ""))
+    except (TypeError, ValueError) as exc:
+        raise ApiError("year는 연도 숫자여야 합니다.", fields={"year": "형식을 확인해 주세요."}) from exc
+    uploaded = request.FILES.get("file")
+    if not uploaded:
+        raise ApiError("엑셀 파일을 첨부해 주세요.", fields={"file": "필수 항목입니다."})
+    archive, _ = SalesLedgerArchive.objects.get_or_create(year=year)
+    archive.file.save(uploaded.name, uploaded, save=True)
+    return JsonResponse({"year": archive.year, "name": archive.file.name.rsplit("/", 1)[-1]})
+
+
+@endpoint(["GET"])
+def ledger_archive_download(request, year):
+    try:
+        archive = SalesLedgerArchive.objects.get(year=year)
+    except SalesLedgerArchive.DoesNotExist as exc:
+        raise ApiError("해당 연도 보관 파일이 없습니다.", status=404, code="not_found") from exc
+    response = FileResponse(archive.file.open("rb"), as_attachment=True, filename=f"매출관리대장_{year}년_연간보관.xlsx")
+    return response
 
 
 def _month_end(month):
