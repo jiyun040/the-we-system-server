@@ -77,6 +77,16 @@ class SalesMonthTests(TestCase):
                 start_date=start, end_date=end, source_deleted=deleted)
         self.assertEqual(set(_records_for_month(date(2026,9,1)).values_list('source_id',flat=True)), {'long-contract','first','last'})
 
+    def test_usage_start_controls_month_even_when_record_was_created_earlier(self):
+        record = SalesLedgerRecord.objects.create(
+            source_id='october-use', project_name='10월 사용 현장',
+            start_date=date(2026, 10, 2), end_date=date(2026, 10, 20),
+            record_date=date(2026, 9, 21),
+        )
+        self.assertFalse(_records_for_month(date(2026, 9, 1)).filter(pk=record.pk).exists())
+        self.assertTrue(_records_for_month(date(2026, 10, 1)).filter(pk=record.pk).exists())
+        self.assertEqual(_data(record, date(2026, 10, 1))['status'], '신규')
+
     @patch('core.views_sales._pdam_rows')
     def test_resync_corrects_old_category_and_false_ended_state(self, rows):
         self.record.category='가맹'
