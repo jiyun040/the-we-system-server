@@ -3,6 +3,8 @@ from datetime import date
 from unittest.mock import patch
 
 from django.test import TestCase
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 
 from core.models import SalesLedgerRecord, SalesLedgerMonth, User
 from core.pdam_sales import sales_query, DEFAULT_PDAM_SALES_QUERY
@@ -57,6 +59,41 @@ class SalesMonthTests(TestCase):
         statement = self.client.get('/api/v1/sales/statements', {'month':'2026-10', 'projectName':'장기 현장'}).json()
         self.assertEqual(statement['items'][0]['endDate'], '2026-10-31')
         self.assertEqual(statement['items'][0]['supplyAmount'], 2800000)
+
+    def test_next_installment_advances_only_after_invoice_is_saved(self):
+        url = f'/api/v1/sales/ledger/{self.record.pk}'
+        self.assertEqual(_data(self.record, date(2026, 10, 1))['installment'], 1)
+        response = self.client.patch(url, data=json.dumps({
+            'month': '2026-09', 'billingDate': '2026-09-20',
+        }), content_type='application/json')
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(_data(self.record, date(2026, 10, 1))['installment'], 1)
+        response = self.client.patch(url, data=json.dumps({
+            'month': '2026-09', 'invoiceDate': '2026-09-25',
+        }), content_type='application/json')
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(_data(self.record, date(2026, 10, 1))['installment'], 2)
+        response = self.client.patch(url, data=json.dumps({
+            'month': '2026-10', 'note': '다음 달 청구 예정',
+        }), content_type='application/json')
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(_data(self.record, date(2026, 10, 1))['installment'], 2)
+        response = self.client.patch(url, data=json.dumps({
+            'month': '2026-10', 'invoiceDate': '2026-10-28',
+        }), content_type='application/json')
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(_data(self.record, date(2026, 11, 1))['installment'], 3)
+
+    def test_search_includes_note_for_selected_month_only(self):
+        url = f'/api/v1/sales/ledger/{self.record.pk}'
+        response = self.client.patch(url, data=json.dumps({
+            'month': '2026-09', 'note': '특별 네고 적용',
+        }), content_type='application/json')
+        self.assertEqual(response.status_code, 200, response.content)
+        september = self.client.get('/api/v1/sales/ledger', {'month': '2026-09', 'q': '네고'}).json()
+        october = self.client.get('/api/v1/sales/ledger', {'month': '2026-10', 'q': '네고'}).json()
+        self.assertEqual(len(september['items']), 1)
+        self.assertEqual(october['items'], [])
 
     def test_bad_monthly_dates_do_not_change_any_month(self):
         response = self.client.patch(f'/api/v1/sales/ledger/{self.record.pk}', data=json.dumps({
@@ -136,3 +173,18 @@ class SalesMonthTests(TestCase):
         sync_pdam_sales_records()
         record = SalesLedgerRecord.objects.get(source_id='ended-new')
         self.assertEqual((record.status, record.category), ('종료', ''))
+
+    @patch('core.views_sales._pdam_rows')
+    def test_unchanged_sync_does_not_rewrite_every_record(self, rows):
+        rows.return_value = [{
+            'source_id': 'long-contract', 'project_name': '장기 현장',
+            'start_date': '2026-08-10', 'end_date': '2026-12-15',
+            'status': '진행', 'category': '본사',
+        }]
+        sync_pdam_sales_records()
+        with CaptureQueriesContext(connection) as queries:
+            sync_pdam_sales_records()
+        updates = [query['sql'] for query in queries if query['sql'].upper().startswith('UPDATE')
+                   and 'salesledgerrecord' in query['sql'].lower()]
+        self.assertEqual(len(updates), 1, updates)
+        self.assertNotIn('project_name', updates[0].lower())

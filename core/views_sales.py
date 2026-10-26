@@ -165,6 +165,8 @@ def sync_pdam_sales_records():
             ))
             continue
         previous_pdam_status = record.pdam_status
+        previous_status = record.status
+        changed = any(getattr(record, field) != value for field, value in source_fields.items())
         for field, value in source_fields.items():
             setattr(record, field, value)
         if pdam_status == "종료":
@@ -173,8 +175,11 @@ def sync_pdam_sales_records():
             record.status = "진행"
         # conduct=1 is 종료. 종료 rows must not remain counted as either
         # headquarters or franchise because their old category is stale.
-        record.category = source_category if pdam_status != "종료" and source_category in {"본사", "가맹"} else ""
-        updates.append(record)
+        category = source_category if pdam_status != "종료" and source_category in {"본사", "가맹"} else ""
+        changed = changed or record.category != category or record.status != previous_status
+        record.category = category
+        if changed:
+            updates.append(record)
     synced_at = timezone.now()
     for record in updates:
         record.updated_at = synced_at
@@ -187,6 +192,9 @@ def sync_pdam_sales_records():
                 ["project_name", "contractor", "partner", "elevator", "start_date", "record_date", "end_date", "pdam_status", "source_category", "source_deleted", "status", "category", "updated_at"],
                 batch_size=500,
             )
+        elif not creates and existing:
+            # Keep the refresh timestamp without rewriting every unchanged row.
+            SalesLedgerRecord.objects.filter(pk=next(iter(existing.values())).pk).update(updated_at=synced_at)
 
 
 def sync_pdam_sales_records_if_stale():
@@ -212,6 +220,12 @@ def _monthly_record(source, month):
     record.contract_end_date = source.end_date
     months = list(source.months.all())
     saved = next((item for item in months if item.month == month), None)
+    prior_issued = [item.installment for item in months if item.month < month and item.invoice_date]
+    if source.invoice_date and source.invoice_date.replace(day=1) < month and not any(
+        item.month == source.invoice_date.replace(day=1) for item in months
+    ):
+        prior_issued.append(source.installment)
+    next_installment = max(prior_issued + [0]) + 1
     ended = source.pdam_status == "종료" or source.status == "종료"
     record.start_date = max(source.start_date, month)
     record.end_date = min(source.end_date, _month_end(month)) if ended and source.end_date else _month_end(month)
@@ -224,11 +238,13 @@ def _monthly_record(source, month):
         record.end_date = min(saved.end_date, record.end_date) if saved.end_date else record.end_date
         if saved.status == "종료" and record.status != "종료":
             record.status = "종료"
+        if not saved.invoice_date:
+            record.installment = next_installment
     elif months or (source.billing_date and source.billing_date.replace(day=1) != month):
         record.billing_date = record.invoice_date = record.deposit_date = None
         record.supply_amount = record.adjustment_amount = 0
         record.adjustment_reason = ""
-        record.installment = max([item.installment for item in months if item.month < month and item.billing_date] + [0]) + 1
+        record.installment = next_installment
     return record
 
 
@@ -272,8 +288,14 @@ def _records_for_month(month, query="", status=""):
 def ledger(request):
     month = _parse_month(request.GET.get("month"))
     sync_pdam_sales_records_if_stale()
-    records = list(_records_for_month(month, request.GET.get("q", "").strip()))
+    records = list(_records_for_month(month))
     records = [_monthly_record(item, month) for item in records]
+    query = request.GET.get("q", "").strip().casefold()
+    if query:
+        records = [item for item in records if any(
+            query in value.casefold()
+            for value in (item.project_name, item.contractor, item.partner, item.note)
+        )]
     requested_status = request.GET.get("status", "").strip()
     if requested_status:
         records = [item for item in records if item.status == requested_status]
