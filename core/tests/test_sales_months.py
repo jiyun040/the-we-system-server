@@ -1,12 +1,15 @@
 import json
 from datetime import date
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from django.test import TestCase
+from django.test import override_settings
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
+from django.core.files.uploadedfile import SimpleUploadedFile
 
-from core.models import SalesLedgerRecord, SalesLedgerMonth, User
+from core.models import SalesLedgerArchive, SalesLedgerRecord, SalesLedgerMonth, User
 from core.pdam_sales import sales_query, DEFAULT_PDAM_SALES_QUERY
 from core.views_sales import _data, _records_for_month, sync_pdam_sales_records
 
@@ -188,3 +191,26 @@ class SalesMonthTests(TestCase):
                    and 'salesledgerrecord' in query['sql'].lower()]
         self.assertEqual(len(updates), 1, updates)
         self.assertNotIn('project_name', updates[0].lower())
+
+    def test_rearchiving_replaces_file_without_random_filename_suffix(self):
+        with TemporaryDirectory() as media_root, override_settings(MEDIA_ROOT=media_root):
+            for content in (b'first', b'second'):
+                response = self.client.post('/api/v1/sales/ledger/archives', {
+                    'year': '2026',
+                    'file': SimpleUploadedFile('매출관리대장_2026년_연간보관.xlsx', content),
+                })
+                self.assertEqual(response.status_code, 200, response.content)
+                self.assertEqual(response.json()['name'], '매출관리대장_2026년_연간보관.xlsx')
+            archive = SalesLedgerArchive.objects.get(year=2026)
+            self.assertEqual(archive.file.name, 'sales-ledger-archives/매출관리대장_2026년_연간보관.xlsx')
+            with archive.file.open('rb') as saved:
+                self.assertEqual(saved.read(), b'second')
+
+    def test_archive_list_hides_legacy_storage_suffix(self):
+        SalesLedgerArchive.objects.create(
+            year=2026,
+            file='sales-ledger-archives/매출관리대장_2026년_연간보관_rmROmPs.xlsx',
+        )
+        response = self.client.get('/api/v1/sales/ledger/archives')
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()['items'][0]['name'], '매출관리대장_2026년_연간보관.xlsx')

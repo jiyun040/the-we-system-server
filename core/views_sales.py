@@ -1,4 +1,5 @@
 from copy import copy
+import re
 
 from datetime import date, datetime, timedelta
 
@@ -21,13 +22,21 @@ def _parse_month(value):
         raise ApiError("month는 YYYY-MM 형식이어야 합니다.", fields={"month": "형식을 확인해 주세요."}) from exc
 
 
+def _archive_name(archive):
+    name = archive.file.name.rsplit("/", 1)[-1]
+    default = f"매출관리대장_{archive.year}년_연간보관"
+    if re.fullmatch(rf"{re.escape(default)}_[A-Za-z0-9]{{7}}\.xlsx", name):
+        return f"{default}.xlsx"
+    return name
+
+
 @endpoint(["GET", "POST", "PATCH", "DELETE"])
 def ledger_archives(request):
     if request.method == "GET":
         items = [
             {
                 "year": archive.year,
-                "name": archive.file.name.rsplit("/", 1)[-1],
+                "name": _archive_name(archive),
                 "updatedAt": archive.updated_at.isoformat(),
             }
             for archive in SalesLedgerArchive.objects.order_by("-year")
@@ -51,13 +60,17 @@ def ledger_archives(request):
             name += ".xlsx"
         old_name = archive.file.name
         new_name = f"sales-ledger-archives/{name}"
-        with archive.file.open("rb") as source:
-            archive.file.storage.save(new_name, source)
         if old_name != new_name:
+            if archive.file.storage.exists(new_name):
+                raise ApiError("이미 사용 중인 파일 이름입니다.")
+            with archive.file.open("rb") as source:
+                saved_name = archive.file.storage.save(new_name, source)
+            archive.file.name = saved_name
+            archive.save(update_fields=["file", "updated_at"])
             archive.file.storage.delete(old_name)
-        archive.file.name = new_name
-        archive.save(update_fields=["file", "updated_at"])
-        return JsonResponse({"year": year, "name": name})
+        else:
+            archive.save(update_fields=["updated_at"])
+        return JsonResponse({"year": year, "name": archive.file.name.rsplit("/", 1)[-1]})
     try:
         year = int(request.POST.get("year", ""))
     except (TypeError, ValueError) as exc:
@@ -66,7 +79,15 @@ def ledger_archives(request):
     if not uploaded:
         raise ApiError("엑셀 파일을 첨부해 주세요.", fields={"file": "필수 항목입니다."})
     archive, _ = SalesLedgerArchive.objects.get_or_create(year=year)
-    archive.file.save(uploaded.name, uploaded, save=True)
+    old_name = archive.file.name
+    target = f"sales-ledger-archives/매출관리대장_{year}년_연간보관.xlsx"
+    storage = archive.file.storage
+    if storage.exists(target):
+        storage.delete(target)
+    archive.file.name = storage.save(target, uploaded)
+    archive.save(update_fields=["file", "updated_at"])
+    if old_name and old_name != archive.file.name:
+        storage.delete(old_name)
     return JsonResponse({"year": archive.year, "name": archive.file.name.rsplit("/", 1)[-1]})
 
 
