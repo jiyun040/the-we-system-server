@@ -194,9 +194,8 @@ def sync_pdam_sales_records():
             record.status = "종료"
         elif previous_pdam_status == "종료":
             record.status = "진행"
-        # conduct=1 is 종료. 종료 rows must not remain counted as either
-        # headquarters or franchise because their old category is stale.
-        category = source_category if pdam_status != "종료" and source_category in {"본사", "가맹"} else ""
+        # 종료된 행에 분류가 비어 있어도 기존 본사/가맹 분류를 유지한다.
+        category = source_category if source_category in {"본사", "가맹"} else record.category
         changed = changed or record.category != category or record.status != previous_status
         record.category = category
         if changed:

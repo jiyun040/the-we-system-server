@@ -159,7 +159,7 @@ class SalesMonthTests(TestCase):
             'start_date':'2026-08-10','status':'종료','category':'본사'}]
         sync_pdam_sales_records()
         self.record.refresh_from_db()
-        self.assertEqual((self.record.category,self.record.status),('','종료'))
+        self.assertEqual((self.record.category,self.record.status),('본사','종료'))
         self.record.pdam_status='진행'
         self.record.save()
         rows.return_value[0]['status']='진행'
@@ -167,6 +167,16 @@ class SalesMonthTests(TestCase):
         sync_pdam_sales_records()
         self.record.refresh_from_db()
         self.assertEqual(self.record.status,'종료')
+
+    @patch('core.views_sales._pdam_rows')
+    def test_ended_source_without_category_keeps_saved_category(self, rows):
+        self.record.category = '가맹'
+        self.record.save()
+        rows.return_value = [{'source_id': 'long-contract', 'project_name': '장기 현장',
+            'start_date': '2026-08-10', 'status': '종료', 'category': ''}]
+        sync_pdam_sales_records()
+        self.record.refresh_from_db()
+        self.assertEqual((self.record.category, self.record.status), ('가맹', '종료'))
 
     @patch('core.views_sales._pdam_rows')
     def test_first_seen_completed_device_has_no_category(self, rows):
