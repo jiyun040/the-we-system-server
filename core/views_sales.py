@@ -296,7 +296,11 @@ def _records_for_month(month, query="", status=""):
     # anchored by use-start date and constrained by the end date when present.
     records = SalesLedgerRecord.objects.filter(
         source_deleted=False, start_date__lte=_month_end(month)
-    ).filter(Q(end_date__isnull=True) | Q(end_date__gte=month))
+    ).filter(
+        Q(end_date__isnull=True)
+        | Q(end_date__gte=month)
+        | Q(months__month=month)
+    ).distinct()
     if query:
         records = records.filter(Q(project_name__icontains=query) | Q(contractor__icontains=query) | Q(partner__icontains=query))
     if status:
