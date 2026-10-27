@@ -245,7 +245,10 @@ def _monthly_record(source, month):
         item.month == source.invoice_date.replace(day=1) for item in months
     ):
         prior_issued.append(source.installment)
-    next_installment = max(prior_issued + [0]) + 1
+    month_delta = (month.year - source.start_date.year) * 12 + month.month - source.start_date.month
+    # 계산서가 아직 발행되지 않은 현장은 1회차를 유지하고,
+    # 이전 월까지 발행된 경우 시작 월부터 경과한 회차를 적용한다.
+    next_installment = max(1, month_delta) if prior_issued else 1
     ended = source.pdam_status == "종료" or source.status == "종료"
     record.start_date = max(source.start_date, month)
     record.end_date = min(source.end_date, _month_end(month)) if ended and source.end_date else _month_end(month)
