@@ -212,6 +212,20 @@ def sync_pdam_sales_records():
                 ["project_name", "contractor", "partner", "elevator", "start_date", "record_date", "end_date", "pdam_status", "source_category", "source_deleted", "status", "category", "updated_at"],
                 batch_size=500,
             )
+        # A device can remain in TB_DEVICE after its reports are deleted or
+        # before its first report is created.  Such a device is absent from
+        # the report-backed source query and must stop appearing in ERP too.
+        active_source_ids = set(source_ids)
+        stale = [
+            record for record in SalesLedgerRecord.objects.all()
+            if record.source_id.isdigit() and record.source_id not in active_source_ids
+        ]
+        if stale:
+            stale_at = timezone.now()
+            for record in stale:
+                record.source_deleted = True
+                record.updated_at = stale_at
+            SalesLedgerRecord.objects.bulk_update(stale, ["source_deleted", "updated_at"], batch_size=500)
         elif not creates and existing:
             # Keep the refresh timestamp without rewriting every unchanged row.
             SalesLedgerRecord.objects.filter(pk=next(iter(existing.values())).pk).update(updated_at=synced_at)
