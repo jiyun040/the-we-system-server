@@ -295,14 +295,13 @@ def _data(record, month=None):
 
 
 def _records_for_month(month, query="", status=""):
-    # This condition includes monthly carry-over projects; the selected month is
-    # anchored by use-start date and constrained by the end date when present.
+    # A month is visible only while the PDAM usage period overlaps that month.
+    # Monthly rows preserve accounting fields for that period, but must not
+    # resurrect a project after it ended (or before it started).
     records = SalesLedgerRecord.objects.filter(
         source_deleted=False, start_date__lte=_month_end(month)
     ).filter(
-        Q(end_date__isnull=True)
-        | Q(end_date__gte=month)
-        | Q(months__month=month)
+        Q(end_date__isnull=True) | Q(end_date__gte=month)
     ).distinct()
     if query:
         records = records.filter(Q(project_name__icontains=query) | Q(contractor__icontains=query) | Q(partner__icontains=query))
