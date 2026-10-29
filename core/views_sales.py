@@ -11,7 +11,7 @@ from django.http import FileResponse, JsonResponse
 from django.utils import timezone
 
 from .api import ApiError, endpoint, parse_json
-from .models import SalesLedgerArchive, SalesLedgerRecord, SalesLedgerMonth
+from .models import SalesLedgerArchive, SalesLedgerRecord, SalesLedgerMonth, SalesLedgerReportMonth
 from .pdam_sales import sales_query
 
 
@@ -130,7 +130,7 @@ def _pdam_rows():
             password=settings.PDAM_DB_PASSWORD,
             database=settings.PDAM_DB_NAME,
             connect_timeout=10,
-            read_timeout=30,
+            read_timeout=90,
             charset="utf8mb4",
         )
         try:
@@ -156,12 +156,20 @@ def sync_pdam_sales_records():
         [source_id for source_id in source_ids if source_id], field_name="source_id"
     )
     creates, updates = [], []
+    source_report_months = {}
     for source in sources:
         source_id = str(source.get("source_id") or "").strip()
         project_name = str(source.get("project_name") or "").strip()
         start_date = _to_date(source.get("start_date"))
         if not source_id or not project_name or start_date is None:
             continue
+        report_months = set()
+        for value in str(source.get("report_months") or "").split(","):
+            try:
+                report_months.add(_parse_month(value))
+            except ApiError:
+                continue
+        source_report_months[source_id] = report_months
         pdam_status = str(source.get("status") or "").strip()
         source_category = str(source.get("category") or "").strip()
         source_fields = {
@@ -206,6 +214,30 @@ def sync_pdam_sales_records():
     with transaction.atomic():
         if creates:
             SalesLedgerRecord.objects.bulk_create(creates, batch_size=500)
+        if source_report_months:
+            report_records = SalesLedgerRecord.objects.in_bulk(
+                source_report_months, field_name="source_id"
+            )
+            existing_report_months = {
+                (item.record_id, item.month)
+                for item in SalesLedgerReportMonth.objects.filter(record__in=report_records.values())
+            }
+            desired_report_months = {
+                (report_records[source_id].pk, month)
+                for source_id, months in source_report_months.items()
+                if source_id in report_records
+                for month in months
+            }
+            obsolete = existing_report_months - desired_report_months
+            if obsolete:
+                for record_id, month in obsolete:
+                    SalesLedgerReportMonth.objects.filter(record_id=record_id, month=month).delete()
+            SalesLedgerReportMonth.objects.bulk_create(
+                [SalesLedgerReportMonth(record_id=record_id, month=month)
+                 for record_id, month in desired_report_months - existing_report_months],
+                batch_size=500,
+                ignore_conflicts=True,
+            )
         if updates:
             SalesLedgerRecord.objects.bulk_update(
                 updates,
@@ -233,7 +265,7 @@ def sync_pdam_sales_records():
 
 def sync_pdam_sales_records_if_stale():
     latest = SalesLedgerRecord.objects.order_by("-updated_at").values_list("updated_at", flat=True).first()
-    if latest and timezone.now() - latest < timedelta(minutes=5):
+    if latest and timezone.now() - latest < timedelta(minutes=5) and SalesLedgerReportMonth.objects.exists():
         return
     sync_pdam_sales_records()
 
@@ -313,7 +345,7 @@ def _records_for_month(month, query="", status=""):
     # Monthly rows preserve accounting fields for that period, but must not
     # resurrect a project after it ended (or before it started).
     records = SalesLedgerRecord.objects.filter(
-        source_deleted=False, start_date__lte=_month_end(month)
+        source_deleted=False, start_date__lte=_month_end(month), report_months__month=month
     ).filter(
         Q(end_date__isnull=True) | Q(end_date__gte=month)
     ).distinct()
