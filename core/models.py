@@ -392,16 +392,6 @@ class SalesLedgerMonth(models.Model):
         constraints = [models.UniqueConstraint(fields=["record", "month"], name="unique_sales_record_month")]
 
 
-class SalesLedgerReportMonth(models.Model):
-    """A month with at least one non-deleted PDAM report for a device."""
-
-    record = models.ForeignKey(SalesLedgerRecord, on_delete=models.CASCADE, related_name="report_months")
-    month = models.DateField()
-
-    class Meta:
-        constraints = [models.UniqueConstraint(fields=["record", "month"], name="unique_sales_report_month")]
-
-
 class SalesLedgerArchive(models.Model):
     year = models.PositiveSmallIntegerField(unique=True, db_index=True)
     file = models.FileField(upload_to="sales-ledger-archives/")

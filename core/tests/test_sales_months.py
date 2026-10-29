@@ -9,7 +9,7 @@ from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from django.core.files.uploadedfile import SimpleUploadedFile
 
-from core.models import SalesLedgerArchive, SalesLedgerRecord, SalesLedgerMonth, SalesLedgerReportMonth, User
+from core.models import SalesLedgerArchive, SalesLedgerRecord, SalesLedgerMonth, User
 from core.pdam_sales import sales_query, DEFAULT_PDAM_SALES_QUERY
 from core.views_sales import _data, _records_for_month, sync_pdam_sales_records
 
@@ -22,10 +22,6 @@ class SalesMonthTests(TestCase):
             start_date=date(2026, 8, 10), end_date=date(2026, 12, 15),
             pdam_status='진행', status='진행', category='본사',
         )
-        SalesLedgerReportMonth.objects.bulk_create([
-            SalesLedgerReportMonth(record=self.record, month=date(2026, month, 1))
-            for month in range(8, 13)
-        ])
 
     def test_active_contract_only_displays_selected_month(self):
         data = _data(self.record, date(2026, 10, 1))
@@ -119,10 +115,6 @@ class SalesMonthTests(TestCase):
         ]:
             SalesLedgerRecord.objects.create(source_id=source_id, project_name=source_id,
                 start_date=start, end_date=end, source_deleted=deleted)
-        SalesLedgerReportMonth.objects.bulk_create([
-            SalesLedgerReportMonth(record=record, month=date(2026, 9, 1))
-            for record in SalesLedgerRecord.objects.all()
-        ], ignore_conflicts=True)
         self.assertEqual(set(_records_for_month(date(2026,9,1)).values_list('source_id',flat=True)), {'long-contract','first','last'})
 
     def test_usage_start_controls_month_even_when_record_was_created_earlier(self):
@@ -131,30 +123,9 @@ class SalesMonthTests(TestCase):
             start_date=date(2026, 10, 2), end_date=date(2026, 10, 20),
             record_date=date(2026, 9, 21),
         )
-        SalesLedgerReportMonth.objects.create(record=record, month=date(2026, 10, 1))
         self.assertFalse(_records_for_month(date(2026, 9, 1)).filter(pk=record.pk).exists())
         self.assertTrue(_records_for_month(date(2026, 10, 1)).filter(pk=record.pk).exists())
         self.assertEqual(_data(record, date(2026, 10, 1))['status'], '신규')
-
-    @patch('core.views_sales._pdam_rows')
-    def test_only_reported_month_is_visible_and_accounting_history_survives(self, rows):
-        SalesLedgerMonth.objects.create(
-            record=self.record, month=date(2026, 9, 1),
-            billing_date=date(2026, 9, 20), deposit_date=date(2026, 10, 5), installment=3,
-        )
-        rows.return_value = [{
-            'source_id': self.record.source_id, 'project_name': self.record.project_name,
-            'start_date': '2026-08-10', 'end_date': '2026-12-15',
-            'report_months': '2026-09,2026-10',
-        }]
-        sync_pdam_sales_records()
-        self.assertFalse(_records_for_month(date(2026, 8, 1)).filter(pk=self.record.pk).exists())
-        self.assertTrue(_records_for_month(date(2026, 9, 1)).filter(pk=self.record.pk).exists())
-        self.assertTrue(_records_for_month(date(2026, 10, 1)).filter(pk=self.record.pk).exists())
-        self.assertFalse(_records_for_month(date(2026, 11, 1)).filter(pk=self.record.pk).exists())
-        saved = SalesLedgerMonth.objects.get(record=self.record, month=date(2026, 9, 1))
-        self.assertEqual((saved.billing_date, saved.deposit_date, saved.installment),
-                         (date(2026, 9, 20), date(2026, 10, 5), 3))
 
     @patch('core.views_sales._pdam_rows')
     def test_resync_corrects_old_category_and_false_ended_state(self, rows):
@@ -163,8 +134,8 @@ class SalesMonthTests(TestCase):
         franchise = SalesLedgerRecord.objects.create(source_id='franchise',project_name='장기 현장',
             start_date=date(2026,8,1),status='종료',pdam_status='종료',category='')
         rows.return_value = [
-            {'source_id':'long-contract','project_name':'장기 현장','start_date':'2026-08-10','status':'진행','category':'본사','report_months':'2026-09'},
-            {'source_id':'franchise','project_name':'장기 현장','start_date':'2026-08-01','status':'진행','category':'가맹','report_months':'2026-09'},
+            {'source_id':'long-contract','project_name':'장기 현장','start_date':'2026-08-10','status':'진행','category':'본사'},
+            {'source_id':'franchise','project_name':'장기 현장','start_date':'2026-08-01','status':'진행','category':'가맹'},
             {'source_id':'deleted','project_name':'삭제 현장','start_date':'2026-08-01','status':'진행','category':'본사','is_deleted':1},
         ]
         sync_pdam_sales_records()
