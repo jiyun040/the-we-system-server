@@ -316,7 +316,7 @@ def _records_for_month(month, query="", status=""):
         source_deleted=False, start_date__lte=_month_end(month)
     ).filter(
         Q(end_date__isnull=True) | Q(end_date__gte=month)
-    ).exclude(contractor="본사TEST").distinct()
+    ).exclude(contractor__iregex=r"^\s*본사\s*test\s*$").distinct()
     if query:
         records = records.filter(Q(project_name__icontains=query) | Q(contractor__icontains=query) | Q(partner__icontains=query))
     if status:
