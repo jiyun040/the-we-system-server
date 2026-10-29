@@ -327,7 +327,6 @@ def _records_for_month(month, query="", status=""):
 @endpoint(["GET"])
 def ledger(request):
     month = _parse_month(request.GET.get("month"))
-    sync_pdam_sales_records_if_stale()
     records = list(_records_for_month(month))
     records = [_monthly_record(item, month) for item in records]
     query = request.GET.get("q", "").strip().casefold()

@@ -1,0 +1,12 @@
+[Unit]
+Description=Periodic PDAM sales synchronization
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=5min
+AccuracySec=15s
+Persistent=true
+Unit=the-we-api-sync.service
+
+[Install]
+WantedBy=timers.target
