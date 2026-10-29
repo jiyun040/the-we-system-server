@@ -130,7 +130,7 @@ def _pdam_rows():
             password=settings.PDAM_DB_PASSWORD,
             database=settings.PDAM_DB_NAME,
             connect_timeout=10,
-            read_timeout=30,
+            read_timeout=90,
             charset="utf8mb4",
         )
         try:
