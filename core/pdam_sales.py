@@ -17,7 +17,8 @@ FROM TB_DEVICE d
 LEFT JOIN TB_CONSTRUCTION c ON c.id = d.constructionIdx
 LEFT JOIN TB_GROUP g ON g.idx = c.groupIdx
 WHERE EXISTS (SELECT 1 FROM TB_REPORT rr WHERE rr.deviceIdx = d.id AND COALESCE(rr.isDel, 0) = 0)
-  AND COALESCE(NULLIF(d.machineNumber, ''), d.lavelNo) NOT LIKE '%천공%'
+  AND COALESCE(d.machineNumber, '') NOT LIKE '%천공%'
+  AND COALESCE(d.lavelNo, '') NOT LIKE '%천공%'
 """.strip()
 
 
