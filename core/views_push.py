@@ -44,7 +44,13 @@ def notify_users(user_ids, title, body, *, route="/"):
 
             if not firebase_admin._apps:
                 firebase_admin.initialize_app(credentials.Certificate(credentials_path))
-            tokens = list(DevicePushToken.objects.filter(user_id__in=user_ids).values_list("token", flat=True))
+            # A token can be registered more than once (including under different
+            # accounts after reinstall/login). Firebase must receive each token once.
+            tokens = list(
+                DevicePushToken.objects.filter(
+                    user_id__in=user_ids, user__is_active=True
+                ).values_list("token", flat=True).distinct()
+            )
             if not tokens:
                 return
             response = messaging.send_each_for_multicast(messaging.MulticastMessage(

@@ -14,6 +14,7 @@ from .models import (
     ApprovalDocument,
     ApprovalFormTemplate,
     ApprovalHistory,
+    ApprovalNotification,
     ApprovalStep,
     PortalSetting,
     User,
@@ -363,7 +364,14 @@ def submit_document(request, document_id):
         document.save()
         history(document, request.api_user, "결재 요청 상신")
         if next_step and next_step.approver_id:
-            notify_users([next_step.approver_id], "새 결재 요청", "앱에서 결재 문서를 확인해 주세요.")
+            _, created = ApprovalNotification.objects.get_or_create(
+                document=document,
+                approval_step=next_step,
+                recipient_id=next_step.approver_id,
+                notification_type="approval_requested",
+            )
+            if created:
+                notify_users([next_step.approver_id], "새 결재 요청", "앱에서 결재 문서를 확인해 주세요.")
     return JsonResponse(document_data(document_queryset().get(pk=document.pk)))
 
 
@@ -414,7 +422,26 @@ def act_on_document(request, document_id, action):
         recipients = [document.drafter_id]
         if not reject and active_index + 1 < len(steps) and steps[active_index + 1].approver_id:
             recipients.append(steps[active_index + 1].approver_id)
-        notify_users(recipients, f"결재 {verb}", "앱에서 처리 결과를 확인해 주세요.")
+        # Record each event before enqueueing push delivery. The unique constraint
+        # makes retries of the same document/step/recipient/type idempotent.
+        notification_type = "approval_rejected" if reject else "approval_approved"
+        if not reject and active_index == len(steps) - 1:
+            admin_ids = list(
+                User.objects.filter(username__iexact="admin", is_active=True).values_list("id", flat=True)
+            )
+            recipients.extend(admin_ids)
+        unique_recipients = {recipient_id for recipient_id in recipients if recipient_id}
+        new_recipients = []
+        for recipient_id in unique_recipients:
+            _, created = ApprovalNotification.objects.get_or_create(
+                document=document,
+                approval_step=active,
+                recipient_id=recipient_id,
+                notification_type=notification_type,
+            )
+            if created:
+                new_recipients.append(recipient_id)
+        notify_users(new_recipients, f"결재 {verb}", "앱에서 처리 결과를 확인해 주세요.")
     return JsonResponse(document_data(document_queryset().get(pk=document.pk)))
 
 

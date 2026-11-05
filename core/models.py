@@ -333,6 +333,23 @@ class DevicePushToken(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
 
+class ApprovalNotification(models.Model):
+    """Idempotency record for an approval notification event."""
+    document = models.ForeignKey("ApprovalDocument", on_delete=models.CASCADE, related_name="notifications")
+    approval_step = models.ForeignKey("ApprovalStep", on_delete=models.CASCADE, related_name="notifications")
+    recipient = models.ForeignKey(User, on_delete=models.CASCADE, related_name="approval_notifications")
+    notification_type = models.CharField(max_length=30)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["document", "approval_step", "recipient", "notification_type"],
+                name="unique_approval_notification_event",
+            )
+        ]
+
+
 class SalesLedgerRecord(models.Model):
     """ERP-managed fields over a PDAM equipment record.
 
