@@ -42,6 +42,7 @@ curl \
   --silent \
   --retry 5 \
   --retry-delay 2 \
+  -H 'Host: the-we-erp.cloud' \
   http://127.0.0.1:8000/api/v1/health
 
 git rev-parse HEAD > "$APP_DIR/.last-deployed-commit"
