@@ -15,6 +15,8 @@ from . import (
 )
 
 urlpatterns = [
+    # Keep the documented API base URL useful when opened directly.
+    path("", views.service_info, name="api-service-info"),
     path("health", views.health, name="health"),
     path("sales/ledger", views_sales.ledger, name="sales-ledger"),
     path("sales/ledger/archives", views_sales.ledger_archives, name="sales-ledger-archives"),

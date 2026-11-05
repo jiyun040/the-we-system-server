@@ -1,6 +1,27 @@
 
 # 서버 설정
 
+## 운영 도메인 및 클라이언트 자동 배포 전제 조건
+
+현재 서버 배포 설정은 `the-we-erp.cloud`와 `www.the-we-erp.cloud`를
+Nginx의 `server_name`으로 사용하고, `/api/`만 Django로 전달하도록 되어
+있습니다. 운영 적용 전 아래 항목을 확인합니다.
+
+1. Route 53(또는 사용 중인 DNS)에 `the-we-erp.cloud`와 `www`의 A/AAAA 레코드가
+   실제 EC2 주소를 가리키는지 확인합니다.
+2. 80/443 보안 그룹과 Nginx 인증서 설정을 적용하고, `DJANGO_ALLOWED_HOSTS`,
+   `CORS_ALLOWED_ORIGINS`, `CSRF_TRUSTED_ORIGINS`에 실제 HTTPS 도메인만 둡니다.
+3. 클라이언트 저장소에 Flutter `pubspec.yaml`, `lib/`, `web/`가 존재해야 합니다.
+   현재 이 저장소에는 해당 클라이언트 소스와 GitHub Actions 워크플로가 없습니다.
+4. 클라이언트 저장소의 Actions에 Flutter web 빌드 후 서버의
+   `/var/www/the-we-erp`로 업로드하는 배포 작업을 추가하고, 다음 GitHub Secrets를
+   등록합니다: `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`.
+5. 서버에서는 배포 계정의 공개키를 `authorized_keys`에 등록하고,
+   `/var/www/the-we-erp`에 해당 계정의 쓰기 권한을 부여합니다.
+
+클라이언트 소스가 이 저장소로 이동되거나 별도 저장소 경로가 확정되면 그 위치에
+빌드·업로드 워크플로를 추가할 수 있습니다.
+
 변경된 모델을 적용하려면 배포 시 `python3 manage.py migrate`를 실행합니다.
 
 ## PDAM DB 연동
