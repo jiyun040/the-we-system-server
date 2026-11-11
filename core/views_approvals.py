@@ -125,7 +125,11 @@ def replace_attachments(document, items):
 def replace_steps(document, supplied, drafter):
     document.steps.all().delete()
     if not supplied:
-        approver = User.objects.filter(is_active=True, is_staff=True).exclude(pk=drafter.pk).first()
+        approver = User.objects.filter(is_active=True).exclude(pk=drafter.pk).filter(
+            Q(username="ceo") | Q(position__contains="대표")
+        ).first()
+        if approver is None:
+            approver = User.objects.filter(is_active=True, is_staff=True).exclude(pk=drafter.pk).first()
         if approver is None and not drafter.is_staff:
             approver = User.objects.filter(is_active=True).exclude(pk=drafter.pk).first()
         supplied = [{
@@ -169,6 +173,63 @@ def replace_steps(document, supplied, drafter):
 def set_progress(document):
     steps = list(document.steps.all())
     document.progress = round(sum(step.status == "완료" for step in steps) / len(steps) * 100) if steps else 0
+
+
+@endpoint(["PATCH"], dev_fallback=True)
+def material_photos(request, document_id):
+    with transaction.atomic():
+        document = ApprovalDocument.objects.select_for_update().filter(public_id=document_id).first()
+        if document is None:
+            raise ApiError("결재 문서를 찾을 수 없습니다.", status=404, code="not_found")
+        if document.form_name != "자재구매신청서" or document.status != ApprovalDocument.Status.APPROVED or document.form_fields.get("_materialApprovalStage") not in (None, "awaiting_photos"):
+            raise ApiError("사진을 수정할 수 없는 단계입니다.", status=409, code="invalid_state")
+        if document.drafter_id != request.api_user.id and not request.api_user.is_staff:
+            raise ApiError("사진을 수정할 권한이 없습니다.", status=403, code="permission_denied")
+        data = parse_json(request)
+        if not data or set(data) - {"materialPhotoBefore", "materialPhotoAfter"}:
+            raise ApiError("사진 항목만 수정할 수 있습니다.")
+        fields = dict(document.form_fields)
+        for key, value in data.items():
+            if not isinstance(value, str) or (value and not value.startswith("data:image/")) or len(value) > 2_100_000:
+                raise ApiError("사진 데이터가 올바르지 않습니다.")
+            fields[key] = value
+        fields["_materialPhotoUpdated"] = "true"
+        document.form_fields = fields
+        document.save(update_fields=["form_fields", "updated_at"])
+        history(document, request.api_user, "2차 승인용 자재 사진 변경")
+    return JsonResponse(document_data(document_queryset().get(pk=document.pk)))
+
+
+@endpoint(["POST"], dev_fallback=True)
+def material_final_approval(request, document_id):
+    with transaction.atomic():
+        document = ApprovalDocument.objects.select_for_update().filter(public_id=document_id).first()
+        if document is None:
+            raise ApiError("결재 문서를 찾을 수 없습니다.", status=404, code="not_found")
+        if document.form_name != "자재구매신청서" or document.status != ApprovalDocument.Status.APPROVED or document.form_fields.get("_materialApprovalStage") not in (None, "awaiting_photos"):
+            raise ApiError("2차 승인을 요청할 수 없는 단계입니다.", status=409, code="invalid_state")
+        if document.drafter_id != request.api_user.id and not request.api_user.is_staff:
+            raise ApiError("2차 승인을 요청할 권한이 없습니다.", status=403, code="permission_denied")
+        if not document.form_fields.get("materialPhotoAfter") or document.form_fields.get("_materialPhotoUpdated") != "true":
+            raise ApiError("반입 후 사진을 새로 등록해 주세요.")
+        last = document.steps.order_by("order").last()
+        if last is None or last.order == 0:
+            raise ApiError("최종 승인자를 찾을 수 없습니다.", status=409, code="invalid_state")
+        step = ApprovalStep.objects.create(
+            document=document, order=last.order + 1, approver=last.approver,
+            name=last.name, department=last.department, step_type="최종승인",
+            role=last.role, status="진행중",
+        )
+        fields = dict(document.form_fields)
+        fields["_materialApprovalStage"] = "second_pending"
+        document.form_fields = fields
+        document.status = ApprovalDocument.Status.PENDING
+        set_progress(document)
+        document.save(update_fields=["form_fields", "status", "progress", "updated_at"])
+        history(document, request.api_user, "2차 최종승인 요청")
+        if step.approver_id:
+            notify_users([step.approver_id], "새 결재 요청", "자재구매신청서 2차 최종승인을 확인해 주세요.")
+    return JsonResponse(document_data(document_queryset().get(pk=document.pk)))
 
 
 @endpoint(["GET"], auth=False, dev_fallback=True)
@@ -415,8 +476,17 @@ def act_on_document(request, document_id, action):
         else:
             document.status = ApprovalDocument.Status.APPROVED
             document.can_cancel = False
+            if document.form_name == "자재구매신청서":
+                fields = dict(document.form_fields)
+                fields["_materialApprovalStage"] = (
+                    "complete" if fields.get("_materialApprovalStage") == "second_pending"
+                    else "awaiting_photos"
+                )
+                if fields["_materialApprovalStage"] == "awaiting_photos":
+                    fields["_materialPhotoUpdated"] = "false"
+                document.form_fields = fields
         set_progress(document)
-        document.save(update_fields=["status", "can_edit", "can_cancel", "progress", "updated_at"])
+        document.save(update_fields=["status", "can_edit", "can_cancel", "progress", "form_fields", "updated_at"])
         verb = "반려" if reject else "승인"
         history(document, request.api_user, f"{verb}: {decision_comment}" if decision_comment else verb)
         recipients = [document.drafter_id]

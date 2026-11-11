@@ -19,13 +19,23 @@ def device_tokens(request):
     if not token or len(token) > 4096:
         raise ApiError("알림 기기 토큰을 확인해 주세요.")
     token_hash = hashlib.sha256(token.encode()).hexdigest()
+    platform = str(data.get("platform") or "").strip().lower()[:20]
     if request.method == "DELETE":
         DevicePushToken.objects.filter(user=request.api_user, token_hash=token_hash).delete()
         return JsonResponse({"deleted": True})
-    DevicePushToken.objects.update_or_create(
-        token_hash=token_hash,
-        defaults={"token": token, "user": request.api_user, "platform": str(data.get("platform") or "")[:20]},
-    )
+    # Web FCM tokens can rotate while older browser registrations remain valid.
+    # Keep the most recently registered web token for this user so one event
+    # does not notify the same browser repeatedly. Mobile users may have more
+    # than one phone, so their tokens are kept independently.
+    with transaction.atomic():
+        DevicePushToken.objects.update_or_create(
+            token_hash=token_hash,
+            defaults={"token": token, "user": request.api_user, "platform": platform},
+        )
+        if platform == "web":
+            DevicePushToken.objects.filter(
+                user=request.api_user, platform=platform
+            ).exclude(token_hash=token_hash).delete()
     return JsonResponse({"registered": True})
 
 

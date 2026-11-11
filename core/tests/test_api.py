@@ -16,8 +16,10 @@ from core.admin_access import (
 )
 from core.models import (
     ApprovalDocument,
+    ApprovalStep,
     ApprovalFormTemplate,
     Department,
+    DevicePushToken,
     LeaveRequest,
     Notice,
     PortalSetting,
@@ -44,6 +46,104 @@ class ApiFlowTests(TestCase):
 
     def headers(self, token):
         return {"HTTP_AUTHORIZATION": f"Bearer {token}"}
+
+    def test_material_purchase_requires_second_final_approval_after_photo_change(self):
+        drafter = User.objects.get(username="edu_manager")
+        approver = User.objects.get(username="edu_teacher")
+        document = ApprovalDocument.objects.create(
+            public_id="APR-MATERIAL-TWO-STAGE", title="자재구매", drafter=drafter,
+            department_name=drafter.department.name, form_name="자재구매신청서",
+            status=ApprovalDocument.Status.PENDING, can_edit=False,
+            form_fields={},
+        )
+        ApprovalStep.objects.create(document=document, order=0, approver=drafter,
+                                    name=drafter.display_name, status="완료")
+        ApprovalStep.objects.create(document=document, order=1, approver=approver,
+                                    name=approver.display_name, status="진행중")
+        base = "/api/v1/approvals/documents/APR-MATERIAL-TWO-STAGE"
+        approved = self.client.post(
+            "/api/v1/approvals/APR-MATERIAL-TWO-STAGE/approve",
+            data="{}", content_type="application/json",
+            **self.headers(self.login(approver.username)),
+        )
+        self.assertEqual(approved.status_code, 200, approved.content)
+        self.assertEqual(approved.json()["formFields"]["_materialApprovalStage"], "awaiting_photos")
+        drafter_headers = self.headers(self.login(drafter.username))
+        self.assertEqual(self.client.post(
+            base + "/material-final-approval", data="{}",
+            content_type="application/json", **drafter_headers,
+        ).status_code, 400)
+        changed = self.client.patch(
+            base + "/material-photos",
+            data=json.dumps({"materialPhotoAfter": "data:image/jpeg;base64,YQ=="}),
+            content_type="application/json", **drafter_headers,
+        )
+        self.assertEqual(changed.status_code, 200, changed.content)
+        requested = self.client.post(base + "/material-final-approval", data="{}",
+                                     content_type="application/json", **drafter_headers)
+        self.assertEqual(requested.status_code, 200, requested.content)
+        self.assertEqual([step["status"] for step in requested.json()["steps"]],
+                         ["완료", "완료", "진행중"])
+        self.assertEqual(requested.json()["steps"][-1]["name"], approver.display_name)
+        self.assertEqual(self.client.patch(
+            base + "/material-photos", data=json.dumps({"materialPhotoAfter": ""}),
+            content_type="application/json", **drafter_headers,
+        ).status_code, 409)
+        second_approved = self.client.post(
+            "/api/v1/approvals/APR-MATERIAL-TWO-STAGE/approve",
+            data="{}", content_type="application/json",
+            **self.headers(self.login(approver.username)),
+        )
+        self.assertEqual(second_approved.status_code, 200, second_approved.content)
+        self.assertEqual(second_approved.json()["formFields"]["_materialApprovalStage"], "complete")
+        self.assertEqual(second_approved.json()["status"], "완료")
+
+    def test_document_without_approval_line_defaults_to_ceo(self):
+        ceo = User.objects.get(username="ceo")
+        created = self.client.post(
+            "/api/v1/approvals/documents",
+            data=json.dumps({"formId": "business-draft", "title": "기본 결재"}),
+            content_type="application/json",
+            **self.headers(self.login("edu_manager")),
+        )
+        self.assertEqual(created.status_code, 201, created.content)
+        steps = created.json()["steps"]
+        self.assertEqual(len(steps), 2)
+        self.assertEqual(steps[1]["name"], ceo.display_name)
+
+    def test_device_token_registration_replaces_rotated_token_per_platform(self):
+        token = self.login()
+        endpoint = "/api/v1/notifications/devices"
+        first = self.client.post(
+            endpoint,
+            data=json.dumps({"token": "web-token-old", "platform": "web"}),
+            content_type="application/json",
+            **self.headers(token),
+        )
+        self.assertEqual(first.status_code, 200, first.content)
+        second = self.client.post(
+            endpoint,
+            data=json.dumps({"token": "web-token-new", "platform": "WEB"}),
+            content_type="application/json",
+            **self.headers(token),
+        )
+        self.assertEqual(second.status_code, 200, second.content)
+        self.assertEqual(
+            list(DevicePushToken.objects.filter(user__username="edu_manager").values_list("token", flat=True)),
+            ["web-token-new"],
+        )
+        for mobile_token in ("phone-one", "phone-two"):
+            response = self.client.post(
+                endpoint,
+                data=json.dumps({"token": mobile_token, "platform": "android"}),
+                content_type="application/json",
+                **self.headers(token),
+            )
+            self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(
+            set(DevicePushToken.objects.filter(user__username="edu_manager").values_list("token", flat=True)),
+            {"web-token-new", "phone-one", "phone-two"},
+        )
 
     def test_sales_ledger_includes_monthly_carry_and_enforces_billing_rules(self):
         carry = SalesLedgerRecord.objects.create(
