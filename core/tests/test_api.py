@@ -67,6 +67,7 @@ class ApiFlowTests(TestCase):
             **self.headers(self.login(approver.username)),
         )
         self.assertEqual(approved.status_code, 200, approved.content)
+        self.assertEqual(approved.json()["status"], "결재대기")
         self.assertEqual(approved.json()["formFields"]["_materialApprovalStage"], "awaiting_photos")
         drafter_headers = self.headers(self.login(drafter.username))
         self.assertEqual(self.client.post(

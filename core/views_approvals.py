@@ -181,7 +181,7 @@ def material_photos(request, document_id):
         document = ApprovalDocument.objects.select_for_update().filter(public_id=document_id).first()
         if document is None:
             raise ApiError("결재 문서를 찾을 수 없습니다.", status=404, code="not_found")
-        if document.form_name != "자재구매신청서" or document.status != ApprovalDocument.Status.APPROVED or document.form_fields.get("_materialApprovalStage") not in (None, "awaiting_photos"):
+        if document.form_name != "자재구매신청서" or document.status not in (ApprovalDocument.Status.APPROVED, ApprovalDocument.Status.PENDING) or document.form_fields.get("_materialApprovalStage") not in (None, "awaiting_photos"):
             raise ApiError("사진을 수정할 수 없는 단계입니다.", status=409, code="invalid_state")
         if document.drafter_id != request.api_user.id and not request.api_user.is_staff:
             raise ApiError("사진을 수정할 권한이 없습니다.", status=403, code="permission_denied")
@@ -206,7 +206,7 @@ def material_final_approval(request, document_id):
         document = ApprovalDocument.objects.select_for_update().filter(public_id=document_id).first()
         if document is None:
             raise ApiError("결재 문서를 찾을 수 없습니다.", status=404, code="not_found")
-        if document.form_name != "자재구매신청서" or document.status != ApprovalDocument.Status.APPROVED or document.form_fields.get("_materialApprovalStage") not in (None, "awaiting_photos"):
+        if document.form_name != "자재구매신청서" or document.status != ApprovalDocument.Status.PENDING or document.form_fields.get("_materialApprovalStage") not in (None, "awaiting_photos"):
             raise ApiError("2차 승인을 요청할 수 없는 단계입니다.", status=409, code="invalid_state")
         if document.drafter_id != request.api_user.id and not request.api_user.is_staff:
             raise ApiError("2차 승인을 요청할 권한이 없습니다.", status=403, code="permission_denied")
@@ -474,7 +474,11 @@ def act_on_document(request, document_id, action):
             document.status = ApprovalDocument.Status.PENDING
             document.can_cancel = False
         else:
-            document.status = ApprovalDocument.Status.APPROVED
+            document.status = (
+                ApprovalDocument.Status.PENDING
+                if document.form_name == "자재구매신청서" and document.form_fields.get("_materialApprovalStage") != "second_pending"
+                else ApprovalDocument.Status.APPROVED
+            )
             document.can_cancel = False
             if document.form_name == "자재구매신청서":
                 fields = dict(document.form_fields)
