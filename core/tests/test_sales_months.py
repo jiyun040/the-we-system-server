@@ -63,6 +63,21 @@ class SalesMonthTests(TestCase):
         self.assertEqual(statement['items'][0]['endDate'], '2026-10-31')
         self.assertEqual(statement['items'][0]['supplyAmount'], 2800000)
 
+    def test_statement_accepts_cross_month_date_range(self):
+        response = self.client.get('/api/v1/sales/statements', {
+            'projectName': '장기 현장', 'startDate': '2026-09-15', 'endDate': '2026-10-10',
+        })
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(len(response.json()['items']), 1)
+        self.assertEqual(response.json()['items'][0]['startDate'], '2026-09-15')
+        self.assertEqual(response.json()['items'][0]['endDate'], '2026-10-10')
+
+    def test_statement_rejects_reversed_date_range(self):
+        response = self.client.get('/api/v1/sales/statements', {
+            'projectName': '장기 현장', 'startDate': '2026-10-10', 'endDate': '2026-09-15',
+        })
+        self.assertEqual(response.status_code, 400)
+
     def test_next_installment_advances_only_after_invoice_is_saved(self):
         url = f'/api/v1/sales/ledger/{self.record.pk}'
         self.assertEqual(_data(self.record, date(2026, 10, 1))['installment'], 1)

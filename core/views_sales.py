@@ -115,6 +115,13 @@ def _to_date(value):
     return datetime.strptime(str(value)[:10], "%Y-%m-%d").date()
 
 
+def _parse_query_date(value, field):
+    try:
+        return _to_date(value)
+    except (TypeError, ValueError) as exc:
+        raise ApiError("날짜는 YYYY-MM-DD 형식이어야 합니다.", fields={field: "형식을 확인해 주세요."}) from exc
+
+
 def _pdam_rows():
     """Return rows directly from the configured PDAM DB, never through HTTP."""
     query = sales_query(settings.PDAM_SALES_QUERY)
@@ -427,10 +434,32 @@ def ledger_detail(request, record_id):
 
 @endpoint(["GET"])
 def statements(request):
-    month = _parse_month(request.GET.get("month"))
+    start_date = _parse_query_date(request.GET.get("startDate"), "startDate")
+    end_date = _parse_query_date(request.GET.get("endDate"), "endDate")
+    if (start_date is None) != (end_date is None):
+        raise ApiError("startDate와 endDate를 함께 입력해 주세요.", fields={"startDate": "두 날짜가 모두 필요합니다.", "endDate": "두 날짜가 모두 필요합니다."})
+    if start_date and start_date > end_date:
+        raise ApiError("종료일은 시작일보다 빠를 수 없습니다.", fields={"endDate": "날짜 범위를 확인해 주세요."})
+    month = _parse_month(request.GET.get("month")) if request.GET.get("month") else (start_date.replace(day=1) if start_date else None)
+    if month is None:
+        raise ApiError("month 또는 startDate/endDate가 필요합니다.", fields={"month": "필수 항목입니다."})
     project_name = request.GET.get("projectName", "").strip()
     if not project_name:
         raise ApiError("공사명이 필요합니다.", fields={"projectName": "필수 항목입니다."})
     sync_pdam_sales_records_if_stale()
-    items = _records_for_month(month).filter(project_name=project_name)
-    return JsonResponse({"projectName": project_name, "items": [_data(item, month) for item in items]})
+    if start_date:
+        items = SalesLedgerRecord.objects.filter(
+            source_deleted=False, project_name=project_name, start_date__lte=end_date,
+        ).filter(Q(end_date__isnull=True) | Q(end_date__gte=start_date)).exclude(
+            contractor__iregex=r"^\s*본사\s*test\s*$"
+        ).prefetch_related("months").order_by("project_name", "elevator", "id")
+    else:
+        items = _records_for_month(month).filter(project_name=project_name)
+    result = []
+    for item in items:
+        payload = _data(item, month)
+        if start_date:
+            payload["startDate"] = max(item.start_date, start_date).isoformat()
+            payload["endDate"] = min(item.end_date or end_date, end_date).isoformat()
+        result.append(payload)
+    return JsonResponse({"projectName": project_name, "items": result})
