@@ -4,7 +4,7 @@ from datetime import timedelta
 from django.http import HttpResponse, JsonResponse
 
 from .api import ApiError, endpoint, parse_json, require_fields
-from .models import BoardPost, Department, LeaveRequest, SharedCalendarEvent
+from .models import BoardPost, Department, LeaveRequest, SharedCalendarEvent, SharedRoom, User
 from .parsing import parse_iso_date
 
 
@@ -119,6 +119,7 @@ def board_data(post):
         "attachments": post.attachments,
         "createdAt": post.created_at.isoformat(),
         "updatedAt": post.updated_at.isoformat(),
+        "roomId": post.room_id,
     }
 
 
@@ -154,14 +155,28 @@ def board_fields(data):
 @endpoint(["GET", "POST"])
 def board_posts(request):
     if request.method == "GET":
-        rows = BoardPost.objects.select_related("author", "department")
+        rows = BoardPost.objects.select_related("author", "department", "room")
+        room_id = request.GET.get("roomId")
+        if room_id:
+            room = SharedRoom.objects.filter(pk=room_id, members=request.api_user).first()
+            if room is None:
+                raise ApiError("자료공유 방을 찾을 수 없습니다.", status=403)
+            rows = rows.filter(room=room)
+        else:
+            rows = rows.filter(room__isnull=True)
         department_name = str(request.GET.get("department") or "").strip()
         if department_name == "전체":
             rows = rows.filter(department__isnull=True)
         elif department_name:
             rows = rows.filter(department__name=department_name)
         return JsonResponse({"posts": [board_data(post) for post in rows]})
-    post = BoardPost.objects.create(author=request.api_user, **board_fields(parse_json(request)))
+    data = parse_json(request)
+    room = None
+    if data.get("roomId"):
+        room = SharedRoom.objects.filter(pk=data["roomId"], members=request.api_user).first()
+        if room is None:
+            raise ApiError("자료공유 방에 접근할 수 없습니다.", status=403)
+    post = BoardPost.objects.create(author=request.api_user, room=room, **board_fields(data))
     return JsonResponse(board_data(post), status=201)
 
 
@@ -182,3 +197,25 @@ def board_post_detail(request, post_id):
         setattr(post, key, value)
     post.save()
     return JsonResponse(board_data(post))
+
+
+@endpoint(["GET", "POST"])
+def board_rooms(request):
+    if request.method == "GET":
+        rows = SharedRoom.objects.filter(members=request.api_user).distinct()
+        return JsonResponse({"rooms": [{"id": room.id, "name": room.name} for room in rows]})
+    if not request.api_user.is_staff:
+        raise ApiError("관리자만 자료공유 방을 만들 수 있습니다.", status=403)
+    data = parse_json(request)
+    name = str(data.get("name") or "").strip()
+    if not name:
+        raise ApiError("방 이름을 입력해 주세요.")
+    member_ids = data.get("userIds") or []
+    if data.get("department"):
+        member_ids = list(User.objects.filter(department__name=data["department"], is_active=True).values_list("username", flat=True))
+    members = list(User.objects.filter(username__in=member_ids, is_active=True))
+    if not members:
+        raise ApiError("부서 또는 직원을 선택해 주세요.")
+    room = SharedRoom.objects.create(name=name, creator=request.api_user)
+    room.members.set(members)
+    return JsonResponse({"id": room.id, "name": room.name}, status=201)

@@ -317,9 +317,20 @@ class BoardPost(models.Model):
         Department, null=True, blank=True, on_delete=models.SET_NULL, related_name="board_posts"
     )
     author = models.ForeignKey(User, on_delete=models.PROTECT, related_name="board_posts")
+    room = models.ForeignKey("SharedRoom", null=True, blank=True, on_delete=models.CASCADE, related_name="posts")
     attachments = models.JSONField(default=list, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+
+class SharedRoom(models.Model):
+    name = models.CharField(max_length=100)
+    creator = models.ForeignKey(User, on_delete=models.PROTECT, related_name="shared_rooms_created")
+    members = models.ManyToManyField(User, related_name="shared_rooms", blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["-created_at", "-id"]
