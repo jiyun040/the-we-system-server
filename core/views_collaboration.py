@@ -219,3 +219,30 @@ def board_rooms(request):
     room = SharedRoom.objects.create(name=name, creator=request.api_user)
     room.members.set(members)
     return JsonResponse({"id": room.id, "name": room.name}, status=201)
+
+@endpoint(["PATCH", "DELETE"])
+def board_room_detail(request, room_id):
+    if not request.api_user.is_staff:
+        raise ApiError("관리자만 자료공유 방을 관리할 수 있습니다.", status=403)
+    room = SharedRoom.objects.filter(pk=room_id).first()
+    if room is None:
+        raise ApiError("자료공유 방을 찾을 수 없습니다.", status=404)
+    if request.method == "DELETE":
+        room.delete()
+        return HttpResponse(status=204)
+    data = parse_json(request)
+    if "name" in data:
+        name = str(data.get("name") or "").strip()
+        if not name:
+            raise ApiError("방 이름을 입력해 주세요.")
+        room.name = name[:100]
+    if "department" in data:
+        room.members.set(User.objects.filter(department__name=data["department"], is_active=True))
+    elif "userIds" in data:
+        user_ids = data.get("userIds") or []
+        if not isinstance(user_ids, list):
+            raise ApiError("userIds는 배열이어야 합니다.")
+        room.members.set(User.objects.filter(username__in=user_ids, is_active=True))
+    if "name" in data:
+        room.save(update_fields=["name"])
+    return JsonResponse({"id": room.id, "name": room.name})

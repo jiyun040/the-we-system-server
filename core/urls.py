@@ -29,6 +29,7 @@ urlpatterns = [
     path("board/posts", views_collaboration.board_posts, name="board-posts"),
     path("board/posts/<int:post_id>", views_collaboration.board_post_detail, name="board-post-detail"),
     path("board/rooms", views_collaboration.board_rooms, name="board-rooms"),
+    path("board/rooms/<int:room_id>", views_collaboration.board_room_detail, name="board-room-detail"),
     path("notifications/devices", views_push.device_tokens, name="notification-devices"),
     path("auth/login", views_auth.login, name="login"),
     path("auth/register", views_auth.register, name="register"),

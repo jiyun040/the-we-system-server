@@ -24,6 +24,8 @@ from core.models import (
     Notice,
     PortalSetting,
     SalesLedgerRecord,
+    BoardPost,
+    SharedRoom,
     User,
 )
 from core.views_collaboration import leave_calendar_dates
@@ -1564,6 +1566,43 @@ class ApiFlowTests(TestCase):
             **self.headers(token),
         )
         self.assertEqual(response.status_code, 403)
+
+    def test_board_room_admin_can_update_members_and_regular_user_cannot(self):
+        admin = User.objects.get(username="edu_manager")
+        teacher = User.objects.get(username="edu_teacher")
+        room = SharedRoom.objects.create(name="기존 방", creator=admin)
+        room.members.add(teacher)
+        denied = self.client.patch(
+            f"/api/v1/board/rooms/{room.pk}", data=json.dumps({"name": "변경"}),
+            content_type="application/json", **self.headers(self.login(teacher.username)),
+        )
+        self.assertEqual(denied.status_code, 403)
+        updated = self.client.patch(
+            f"/api/v1/board/rooms/{room.pk}",
+            data=json.dumps({"name": "변경된 방", "userIds": [teacher.username]}),
+            content_type="application/json", **self.headers(self.login(admin.username)),
+        )
+        self.assertEqual(updated.status_code, 200, updated.content)
+        self.assertEqual(updated.json(), {"id": room.pk, "name": "변경된 방"})
+        self.assertEqual(list(room.members.values_list("username", flat=True)), [teacher.username])
+
+    def test_board_room_delete_cascades_posts_and_forbids_regular_user(self):
+        admin = User.objects.get(username="edu_manager")
+        teacher = User.objects.get(username="edu_teacher")
+        room = SharedRoom.objects.create(name="삭제 방", creator=admin)
+        room.members.add(teacher)
+        post = BoardPost.objects.create(title="자료", content="내용", author=teacher, room=room)
+        denied = self.client.delete(
+            f"/api/v1/board/rooms/{room.pk}", **self.headers(self.login(teacher.username)),
+        )
+        self.assertEqual(denied.status_code, 403)
+        deleted = self.client.delete(
+            f"/api/v1/board/rooms/{room.pk}", **self.headers(self.login(admin.username)),
+        )
+        self.assertEqual(deleted.status_code, 204)
+        self.assertFalse(SharedRoom.objects.filter(pk=room.pk).exists())
+        self.assertFalse(BoardPost.objects.filter(pk=post.pk).exists())
+        self.assertEqual(self.client.get(f"/api/v1/board/posts/{post.pk}", **self.headers(self.login(admin.username))).status_code, 404)
 
     @override_settings(DEV_ALLOW_ANONYMOUS=False)
     def test_protected_endpoint_rejects_anonymous_requests(self):
