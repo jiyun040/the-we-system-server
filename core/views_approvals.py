@@ -206,7 +206,7 @@ def material_final_approval(request, document_id):
         document = ApprovalDocument.objects.select_for_update().filter(public_id=document_id).first()
         if document is None:
             raise ApiError("결재 문서를 찾을 수 없습니다.", status=404, code="not_found")
-        if document.form_name != "자재구매신청서" or document.status != ApprovalDocument.Status.PENDING or document.form_fields.get("_materialApprovalStage") not in (None, "awaiting_photos"):
+        if document.form_name != "자재구매신청서" or document.status not in (ApprovalDocument.Status.PENDING, ApprovalDocument.Status.APPROVED) or document.form_fields.get("_materialApprovalStage") not in (None, "awaiting_photos"):
             raise ApiError("2차 승인을 요청할 수 없는 단계입니다.", status=409, code="invalid_state")
         if document.drafter_id != request.api_user.id and not request.api_user.is_staff:
             raise ApiError("2차 승인을 요청할 권한이 없습니다.", status=403, code="permission_denied")
@@ -215,6 +215,8 @@ def material_final_approval(request, document_id):
         last = document.steps.order_by("order").last()
         if last is None or last.order == 0:
             raise ApiError("최종 승인자를 찾을 수 없습니다.", status=409, code="invalid_state")
+        if document.steps.filter(status__in=["진행중", "결재 예정", "예정"]).exists():
+            raise ApiError("1차 결재가 모두 완료되지 않았습니다.", status=409, code="invalid_state")
         step = ApprovalStep.objects.create(
             document=document, order=last.order + 1, approver=last.approver,
             name=last.name, department=last.department, step_type="최종승인",
