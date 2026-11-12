@@ -65,6 +65,9 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     "core.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
+    # Bootstrap can contain document bodies and attachment metadata. Compress
+    # large JSON responses before sending them to Flutter clients.
+    "django.middleware.gzip.GZipMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
