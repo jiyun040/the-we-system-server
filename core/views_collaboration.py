@@ -205,7 +205,15 @@ def board_rooms(request):
     if request.method == "GET":
         rows = (SharedRoom.objects.all() if request.api_user.is_staff else
                 SharedRoom.objects.filter(Q(members=request.api_user) | Q(creator=request.api_user)).distinct())
-        return JsonResponse({"rooms": [{"id": room.id, "name": room.name} for room in rows]})
+        return JsonResponse({"rooms": [{
+            "id": room.id,
+            "name": room.name,
+            "members": [{
+                "id": member.username,
+                "name": member.display_name,
+                "department": member.department.name if member.department else "",
+            } for member in room.members.select_related("department").all()],
+        } for room in rows]})
     if not request.api_user.is_staff:
         raise ApiError("관리자만 자료공유 방을 만들 수 있습니다.", status=403)
     data = parse_json(request)
