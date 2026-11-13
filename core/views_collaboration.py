@@ -174,7 +174,7 @@ def board_posts(request):
     data = parse_json(request)
     room = None
     if data.get("roomId"):
-        room = SharedRoom.objects.filter(pk=data["roomId"], members=request.api_user).first()
+        room = SharedRoom.objects.filter(pk=data["roomId"]).filter(Q(members=request.api_user) | Q(creator=request.api_user)).first()
         if room is None:
             raise ApiError("자료공유 방에 접근할 수 없습니다.", status=403)
     post = BoardPost.objects.create(author=request.api_user, room=room, **board_fields(data))
