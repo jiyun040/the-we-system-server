@@ -2,6 +2,7 @@ import base64
 from datetime import timedelta
 
 from django.http import HttpResponse, JsonResponse
+from django.db.models import Q
 
 from .api import ApiError, endpoint, parse_json, require_fields
 from .models import BoardPost, Department, LeaveRequest, SharedCalendarEvent, SharedRoom, User
@@ -202,7 +203,8 @@ def board_post_detail(request, post_id):
 @endpoint(["GET", "POST"])
 def board_rooms(request):
     if request.method == "GET":
-        rows = SharedRoom.objects.filter(members=request.api_user).distinct()
+        rows = (SharedRoom.objects.all() if request.api_user.is_staff else
+                SharedRoom.objects.filter(Q(members=request.api_user) | Q(creator=request.api_user)).distinct())
         return JsonResponse({"rooms": [{"id": room.id, "name": room.name} for room in rows]})
     if not request.api_user.is_staff:
         raise ApiError("관리자만 자료공유 방을 만들 수 있습니다.", status=403)
@@ -211,7 +213,9 @@ def board_rooms(request):
     if not name:
         raise ApiError("방 이름을 입력해 주세요.")
     member_ids = data.get("userIds") or []
-    if data.get("department"):
+    if data.get("departments"):
+        member_ids = list(User.objects.filter(department__name__in=data["departments"], is_active=True).values_list("username", flat=True)) + list(member_ids)
+    elif data.get("department"):
         member_ids = list(User.objects.filter(department__name=data["department"], is_active=True).values_list("username", flat=True))
     members = list(User.objects.filter(username__in=member_ids, is_active=True))
     if not members:
