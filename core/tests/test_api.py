@@ -1586,6 +1586,25 @@ class ApiFlowTests(TestCase):
         self.assertEqual(updated.json(), {"id": room.pk, "name": "변경된 방"})
         self.assertEqual(list(room.members.values_list("username", flat=True)), [teacher.username])
 
+    def test_admin_can_list_all_room_posts_and_open_any_room(self):
+        admin = User.objects.get(username="edu_manager")
+        teacher = User.objects.get(username="edu_teacher")
+        room = SharedRoom.objects.create(name="관리자 전용 방", creator=admin)
+        BoardPost.objects.create(title="방 자료", content="내용", author=teacher, room=room)
+
+        response = self.client.get(
+            "/api/v1/board/posts", **self.headers(self.login(admin.username)),
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual([post["title"] for post in response.json()["posts"]], ["방 자료"])
+
+        response = self.client.get(
+            f"/api/v1/board/posts?roomId={room.pk}",
+            **self.headers(self.login(admin.username)),
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["posts"][0]["roomId"], room.pk)
+
     def test_board_room_delete_cascades_posts_and_forbids_regular_user(self):
         admin = User.objects.get(username="edu_manager")
         teacher = User.objects.get(username="edu_teacher")

@@ -160,13 +160,14 @@ def board_posts(request):
         rows = BoardPost.objects.select_related("author", "department", "room")
         room_id = request.GET.get("roomId")
         if room_id:
-            room = SharedRoom.objects.filter(pk=room_id).filter(
-                Q(members=request.api_user) | Q(creator=request.api_user)
-            ).first()
+            room_query = SharedRoom.objects.filter(pk=room_id)
+            if not request.api_user.is_staff:
+                room_query = room_query.filter(Q(members=request.api_user) | Q(creator=request.api_user))
+            room = room_query.first()
             if room is None:
                 raise ApiError("자료공유 방을 찾을 수 없습니다.", status=403)
             rows = rows.filter(room=room)
-        else:
+        elif not request.api_user.is_staff:
             rows = rows.filter(room__isnull=True)
         department_name = str(request.GET.get("department") or "").strip()
         if department_name == "전체":
@@ -177,7 +178,10 @@ def board_posts(request):
     data = parse_json(request)
     room = None
     if data.get("roomId"):
-        room = SharedRoom.objects.filter(pk=data["roomId"]).filter(Q(members=request.api_user) | Q(creator=request.api_user)).first()
+        room_query = SharedRoom.objects.filter(pk=data["roomId"])
+        if not request.api_user.is_staff:
+            room_query = room_query.filter(Q(members=request.api_user) | Q(creator=request.api_user))
+        room = room_query.first()
         if room is None:
             raise ApiError("자료공유 방에 접근할 수 없습니다.", status=403)
     post = BoardPost.objects.create(author=request.api_user, room=room, **board_fields(data))
