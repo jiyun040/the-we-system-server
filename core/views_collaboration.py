@@ -7,6 +7,7 @@ from django.db.models import Q
 from .api import ApiError, endpoint, parse_json, require_fields
 from .models import BoardPost, Department, LeaveRequest, SharedCalendarEvent, SharedRoom, User
 from .parsing import parse_iso_date
+from .views_push import notify_users
 
 
 def calendar_data(event):
@@ -159,7 +160,9 @@ def board_posts(request):
         rows = BoardPost.objects.select_related("author", "department", "room")
         room_id = request.GET.get("roomId")
         if room_id:
-            room = SharedRoom.objects.filter(pk=room_id, members=request.api_user).first()
+            room = SharedRoom.objects.filter(pk=room_id).filter(
+                Q(members=request.api_user) | Q(creator=request.api_user)
+            ).first()
             if room is None:
                 raise ApiError("자료공유 방을 찾을 수 없습니다.", status=403)
             rows = rows.filter(room=room)
@@ -178,6 +181,16 @@ def board_posts(request):
         if room is None:
             raise ApiError("자료공유 방에 접근할 수 없습니다.", status=403)
     post = BoardPost.objects.create(author=request.api_user, room=room, **board_fields(data))
+    if room is not None:
+        recipients = set(room.members.values_list("id", flat=True))
+        recipients.add(room.creator_id)
+        recipients.discard(request.api_user.id)
+        notify_users(
+            recipients,
+            "새 자료 공유",
+            f"{request.api_user.display_name}님이 {room.name} 방에 자료를 공유했습니다.",
+            route=f"/board?roomId={room.id}&postId={post.id}",
+        )
     return JsonResponse(board_data(post), status=201)
 
 
