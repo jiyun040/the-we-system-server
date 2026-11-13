@@ -248,13 +248,20 @@ def board_room_detail(request, room_id):
         if not name:
             raise ApiError("방 이름을 입력해 주세요.")
         room.name = name[:100]
-    if "department" in data:
-        room.members.set(User.objects.filter(department__name=data["department"], is_active=True))
-    elif "userIds" in data:
+    if "department" in data or "departments" in data or "userIds" in data:
+        departments = data.get("departments") or ([data["department"]] if data.get("department") else [])
         user_ids = data.get("userIds") or []
-        if not isinstance(user_ids, list):
-            raise ApiError("userIds는 배열이어야 합니다.")
-        room.members.set(User.objects.filter(username__in=user_ids, is_active=True))
+        if not isinstance(departments, list) or not isinstance(user_ids, list):
+            raise ApiError("departments와 userIds는 배열이어야 합니다.")
+        department_users = User.objects.filter(
+            department__name__in=departments, is_active=True
+        )
+        room.members.set(
+            User.objects.filter(
+                Q(pk__in=department_users.values("pk")) | Q(username__in=user_ids),
+                is_active=True,
+            )
+        )
     if "name" in data:
         room.save(update_fields=["name"])
     return JsonResponse({"id": room.id, "name": room.name})
