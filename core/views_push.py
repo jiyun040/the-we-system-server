@@ -56,21 +56,32 @@ def notify_users(user_ids, title, body, *, route="/"):
                 firebase_admin.initialize_app(credentials.Certificate(credentials_path))
             # A token can be registered more than once (including under different
             # accounts after reinstall/login). Firebase must receive each token once.
-            tokens = list(
+            devices = list(
                 DevicePushToken.objects.filter(
                     user_id__in=user_ids, user__is_active=True
-                ).values_list("token", flat=True).distinct()
+                ).values_list("token", "platform").distinct()
             )
-            if not tokens:
+            if not devices:
                 return
-            response = messaging.send_each_for_multicast(messaging.MulticastMessage(
-                notification=messaging.Notification(title=title, body=body),
-                data={"route": route},
-                tokens=tokens,
-            ))
-            for token, result in zip(tokens, response.responses):
-                if not result.success and isinstance(result.exception, messaging.UnregisteredError):
-                    DevicePushToken.objects.filter(token=token).delete()
+            # A web notification payload is displayed automatically by FCM. The
+            # web service worker also displays it with the app icon, so send web
+            # messages as data only and let the worker own the notification.
+            for platform in ("web", "mobile"):
+                tokens = list(dict.fromkeys(
+                    token for token, device_platform in devices
+                    if (device_platform == "web") == (platform == "web")
+                ))
+                if not tokens:
+                    continue
+                message = messaging.MulticastMessage(
+                    notification=(None if platform == "web" else messaging.Notification(title=title, body=body)),
+                    data={"route": route, "title": title, "body": body},
+                    tokens=tokens,
+                )
+                response = messaging.send_each_for_multicast(message)
+                for token, result in zip(tokens, response.responses):
+                    if not result.success and isinstance(result.exception, messaging.UnregisteredError):
+                        DevicePushToken.objects.filter(token=token).delete()
         except Exception:
             logger.exception("푸시 알림을 전송하지 못했습니다")
 
