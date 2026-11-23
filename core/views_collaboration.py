@@ -220,7 +220,10 @@ def board_post_detail(request, post_id):
 @endpoint(["GET", "POST"])
 def board_rooms(request):
     if request.method == "GET":
-        rows = SharedRoom.objects.all()
+        department_names = set(Department.objects.values_list("name", flat=True))
+        rows = SharedRoom.objects.exclude(
+            name__in=department_names
+        ).union(SharedRoom.objects.filter(name="경영지원팀"))
         can_access_all = bool(request.api_user.is_staff or (request.api_user.first_name == "조상훈" and "대표" in (request.api_user.position or "")))
         accessible_ids = set(
             SharedRoom.objects.filter(
