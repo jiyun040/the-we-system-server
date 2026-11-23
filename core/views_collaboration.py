@@ -161,7 +161,7 @@ def board_posts(request):
         room_id = request.GET.get("roomId")
         if room_id:
             room_query = SharedRoom.objects.filter(pk=room_id)
-            if not (request.api_user.is_staff or (request.api_user.first_name == "조상훈" and "대표" in (request.api_user.position or ""))):
+            if not request.api_user.is_staff:
                 room_query = room_query.filter(Q(members=request.api_user) | Q(creator=request.api_user))
             room = room_query.first()
             if room is None:
@@ -179,7 +179,7 @@ def board_posts(request):
     room = None
     if data.get("roomId"):
         room_query = SharedRoom.objects.filter(pk=data["roomId"])
-        if not (request.api_user.is_staff or (request.api_user.first_name == "조상훈" and "대표" in (request.api_user.position or ""))):
+        if not request.api_user.is_staff:
             room_query = room_query.filter(Q(members=request.api_user) | Q(creator=request.api_user))
         room = room_query.first()
         if room is None:
@@ -224,7 +224,7 @@ def board_rooms(request):
         rows = SharedRoom.objects.exclude(
             name__in=department_names
         ).union(SharedRoom.objects.filter(name="경영지원팀"))
-        can_access_all = bool(request.api_user.is_staff or (request.api_user.first_name == "조상훈" and "대표" in (request.api_user.position or "")))
+        can_access_all = bool(request.api_user.is_staff)
         accessible_ids = set(
             SharedRoom.objects.filter(
                 Q(members=request.api_user) | Q(creator=request.api_user)
