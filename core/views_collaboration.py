@@ -221,9 +221,12 @@ def board_post_detail(request, post_id):
 def board_rooms(request):
     if request.method == "GET":
         department_names = set(Department.objects.values_list("name", flat=True))
-        rows = SharedRoom.objects.exclude(
-            name__in=department_names
-        ).union(SharedRoom.objects.filter(name="경영지원팀"))
+        if request.api_user.is_staff and request.GET.get("includeDepartments") == "true":
+            rows = SharedRoom.objects.all()
+        else:
+            rows = SharedRoom.objects.exclude(
+                name__in=department_names
+            ).union(SharedRoom.objects.filter(name="경영지원팀"))
         can_access_all = bool(request.api_user.is_staff)
         accessible_ids = set(
             SharedRoom.objects.filter(
