@@ -1,4 +1,8 @@
 import base64
+import os
+import urllib.parse
+import urllib.request
+import xml.etree.ElementTree as ET
 from datetime import timedelta
 
 from django.http import HttpResponse, JsonResponse
@@ -9,6 +13,26 @@ from .models import BoardPost, Department, LeaveRequest, SharedCalendarEvent, Sh
 from .parsing import parse_iso_date
 from .views_push import notify_users
 
+
+
+@endpoint(["GET"])
+def calendar_holidays(request):
+    year = request.GET.get("year")
+    month = request.GET.get("month")
+    service_key = os.environ.get("DATA_GO_KR_SERVICE_KEY", "")
+    if not year or not month or not service_key:
+        return JsonResponse({"holidays": []})
+    params = urllib.parse.urlencode({"serviceKey": service_key, "solYear": year, "solMonth": str(month).zfill(2), "numOfRows": 100, "pageNo": 1})
+    try:
+        with urllib.request.urlopen("https://apis.data.go.kr/B090041/openapi/service/SpcdeInfoService/getRestDeInfo?" + params, timeout=5) as response:
+            root = ET.fromstring(response.read())
+        holidays = []
+        for item in root.findall(".//item"):
+            if item.findtext("isHoliday") == "Y":
+                holidays.append({"date": item.findtext("locdate", ""), "name": item.findtext("dateName", "")})
+        return JsonResponse({"holidays": holidays})
+    except Exception:
+        return JsonResponse({"holidays": []})
 
 def calendar_data(event):
     return {
