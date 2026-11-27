@@ -2,6 +2,7 @@ from copy import copy
 import re
 
 from datetime import date, datetime, timedelta
+import uuid
 
 import pymysql
 from django.conf import settings
@@ -337,8 +338,41 @@ def _records_for_month(month, query="", status=""):
     return records.prefetch_related("months").order_by("project_name", "elevator", "id")
 
 
-@endpoint(["GET"])
+@endpoint(["GET", "POST"])
 def ledger(request):
+    if request.method == "POST":
+        data = parse_json(request)
+        project_name = str(data.get("projectName", "")).strip()
+        if not project_name:
+            raise ApiError("공사명이 필요합니다.", fields={"projectName": "필수 항목입니다."})
+        try:
+            start_date = _to_date(data.get("startDate"))
+        except (TypeError, ValueError) as exc:
+            raise ApiError("사용 시작일을 확인해 주세요.", fields={"startDate": "YYYY-MM-DD 형식이어야 합니다."}) from exc
+        if start_date is None:
+            raise ApiError("사용 시작일이 필요합니다.", fields={"startDate": "필수 항목입니다."})
+        try:
+            end_date = _to_date(data.get("endDate"))
+        except (TypeError, ValueError) as exc:
+            raise ApiError("사용 종료일을 확인해 주세요.", fields={"endDate": "YYYY-MM-DD 형식이어야 합니다."}) from exc
+        if end_date and end_date < start_date:
+            raise ApiError("사용 종료일은 시작일 이후여야 합니다.")
+        try:
+            billing_date = _to_date(data.get("billingDate")); invoice_date = _to_date(data.get("invoiceDate")); deposit_date = _to_date(data.get("depositDate"))
+            supply_amount = int(data.get("supplyAmount", 0) or 0)
+        except (TypeError, ValueError) as exc:
+            raise ApiError("날짜와 공급가 형식을 확인해 주세요.") from exc
+        if supply_amount < 0:
+            raise ApiError("공급가는 0 이상이어야 합니다.")
+        record = SalesLedgerRecord.objects.create(
+            source_id=f"manual-{uuid.uuid4().hex}", project_name=project_name,
+            contractor=str(data.get("contractor", "")).strip(), partner=str(data.get("partner", "")).strip(),
+            elevator=str(data.get("elevator", "")).strip(), start_date=start_date, end_date=end_date,
+            record_date=start_date, category=str(data.get("category", "")).strip(),
+            billing_date=billing_date, invoice_date=invoice_date, deposit_date=deposit_date, supply_amount=supply_amount,
+            note=str(data.get("note", "")).strip()[:500], status=str(data.get("status", "신규")),
+        )
+        return JsonResponse(_data(record, None), status=201)
     month = _parse_month(request.GET.get("month"))
     records = list(_records_for_month(month))
     records = [_monthly_record(item, month) for item in records]
@@ -362,12 +396,19 @@ def ledger(request):
     }})
 
 
-@endpoint(["PATCH"])
+@endpoint(["PATCH", "DELETE"])
 def ledger_detail(request, record_id):
     try:
         record = SalesLedgerRecord.objects.get(pk=record_id)
     except SalesLedgerRecord.DoesNotExist as exc:
         raise ApiError("청구 항목을 찾을 수 없습니다.", status=404, code="not_found") from exc
+    if request.method == "DELETE":
+        if record.source_id.startswith("manual-"):
+            record.delete()
+        else:
+            record.source_deleted = True
+            record.save(update_fields=["source_deleted", "updated_at"])
+        return JsonResponse({"deleted": str(record_id)})
     data = parse_json(request)
     month = _parse_month(data["month"]) if data.get("month") else None
     source_record = record
